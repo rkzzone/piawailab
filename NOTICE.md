@@ -1,6 +1,6 @@
 # Lisensi pihak ketiga
 
-RapiPDF dirilis di bawah **GNU AGPL-3.0** (lihat `LICENSE.md`), karena menyertakan `@imgly/background-removal` yang berlisensi AGPL-3.0.
+PiawaiLab dirilis di bawah **GNU AGPL-3.0** (lihat `LICENSE.md`), karena menyertakan `@imgly/background-removal` yang berlisensi AGPL-3.0.
 
 Pustaka yang disertakan di folder `vendor/`:
 
@@ -14,6 +14,7 @@ Pustaka yang disertakan di folder `vendor/`:
 | html2canvas | 1.4.1 | MIT |
 | docx-preview | 0.3.6 | Apache-2.0 |
 | @imgly/background-removal (+ onnxruntime-web 1.17.3, lodash, ndarray, zod) | 1.4.5 | AGPL-3.0 (onnxruntime-web: MIT) |
+| Mediabunny (WebCodecs: baca/tulis MP4, WebM, MOV, MKV) | 1.66.2 | MPL-2.0 |
 | Plus Jakarta Sans (`@fontsource/plus-jakarta-sans`) | 5.x | SIL OFL-1.1 |
 
 Model AI hapus latar tidak disertakan; model diunduh dari `staticimgly.com` saat pertama dipakai.

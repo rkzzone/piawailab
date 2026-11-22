@@ -362,14 +362,15 @@ const FilesEngine = {
   async add(s, files, t) {
     if (t.single) { FilesEngine.reset(s); files = files.slice(0, 1); }
     for (const file of files) {
-      const f = { id: uid(), file, name: file.name, size: file.size, loading: true };
+      const f = { id: uid(), file, name: file.name, size: file.size, loading: true, kind: wmKind(file) };
       s.files.push(f); FilesEngine.paint(s, t);
       try {
         if (isPdf(file)) {
           const r = await readPdfFile(file);
           Object.assign(f, { pdf: true, bytes: r.bytes, doc: r.doc, pages: r.doc.numPages, decrypted: !!r.decrypted });
           const c = await renderPage(await r.doc.getPage(1), { width: 140 }); f.thumb = URL.createObjectURL(await toBlob(c, 'image/jpeg', .8));
-        } else { const img = await decodeImage(file); f.thumb = await thumbFrom(img, 140); f.w = img.naturalWidth; f.h = img.naturalHeight; }
+        } else if (isImage(file)) { const img = await decodeImage(file); f.thumb = await thumbFrom(img, 140); f.w = img.naturalWidth; f.h = img.naturalHeight; f.img = img; }
+        else if (f.kind === 'video' && location.protocol !== 'file:') { try { f.thumb = await videoPoster(file); } catch { } }
         f.loading = false;
       } catch (e) { s.files = s.files.filter(x => x !== f); if (!e.skipped) toast(`${file.name}: ${e.message || 'gagal dibuka'}`, 'err'); }
       FilesEngine.paint(s, t);
@@ -386,7 +387,9 @@ const FilesEngine = {
       const id = e.target.closest('[data-rm]')?.dataset.rm; if (id) { const f = s.files.find(x => x.id === id); f?.thumb && URL.revokeObjectURL(f.thumb); f?.doc?.destroy(); s.files = s.files.filter(x => x.id !== id); if (!s.files.length) { s.stage = 'upload'; rerender(); } else { FilesEngine.paint(s, t); s.paintOpts(); FilesEngine.preview(s, t); } }
       if (e.target.closest('[data-a="add"]')) pickFiles(t);
     };
-    s.paintOpts = mountOpts(ui.opts, t.opts || [], s.opts, s, () => FilesEngine.preview(s, t));
+    const relabel = () => { if (t.actionFor) $('span', ui.run).textContent = t.actionFor(s.opts); };
+    s.paintOpts = mountOpts(ui.opts, t.opts || [], s.opts, s, (k, discrete) => { FilesEngine.preview(s, t); if (discrete) { FilesEngine.paint(s, t); relabel(); } });
+    relabel();
     ui.run.onclick = async () => {
       if (s.files.some(f => f.loading)) { toast('Menunggu file selesai dibaca…'); while (s.files.some(f => f.loading)) await sleep(150); }
       if (!s.files.length) return toast('Tambahkan file terlebih dahulu.', 'err');
@@ -407,16 +410,21 @@ const FilesEngine = {
     const ui = s.ui; if (!ui?.body?.isConnected) return;
     const total = s.files.reduce((a, f) => a + f.size, 0);
     $('.info', ui.bar).innerHTML = `${s.files.length} file <span>· ${fmtSize(total)}</span>`;
-    $('.flist', ui.body).innerHTML = s.files.map(f => `<div class="frow"><div class="fthumb">${f.thumb ? `<img src="${f.thumb}" alt="">` : f.loading ? '<i class="spin"></i>' : ic('file')}</div>
-      <div class="finfo"><b title="${esc(f.name)}">${esc(f.name)}</b><span>${f.loading ? 'Membaca…' : [fmtSize(f.size), f.pages ? `${f.pages} halaman` : f.w ? `${f.w}×${f.h}px` : ''].filter(Boolean).join(' · ')}</span></div>
+    $('.flist', ui.body).innerHTML = s.files.map(f => `<div class="frow"><div class="fthumb">${f.thumb ? `<img src="${f.thumb}" alt="">` : f.loading ? '<i class="spin"></i>' : `<span class="fext">${esc(extOf(f.name).toUpperCase().slice(0, 4))}</span>`}</div>
+      <div class="finfo"><b title="${esc(f.name)}">${esc(f.name)}</b><span>${f.loading ? 'Membaca…' : [fmtSize(f.size), f.pages ? `${f.pages} halaman` : f.w ? `${f.w}×${f.h}px` : ''].filter(Boolean).join(' · ')}</span>${!f.loading && t.fileNote?.(f, s.opts) ? `<span class="fnote">${ic('shield')}${esc(t.fileNote(f, s.opts))}</span>` : ''}</div>
       <button class="x" data-rm="${f.id}" title="Hapus">${ic('x')}</button></div>`).join('') + (t.single ? '' : `<button class="add-tile" data-a="add">${ic('plus')} Tambah file</button>`);
     ui.run.disabled = !s.files.length;
   },
   async preview(s, t) {
     if (!t.preview || !s.ui?.body?.isConnected) return;
-    const c = $('.preview-wrap canvas', s.ui.body), f = s.files.find(x => x.doc); if (!c) return;
-    $('.preview-wrap', s.ui.body).classList.toggle('hidden', !f); if (!f) return;
-    if (!f.prev) { const page = await f.doc.getPage(1); const vp = page.getViewport({ scale: 1 }); f.prev = { base: await renderPage(page, { width: 560 * Math.min(2, devicePixelRatio || 1) }), VW: vp.width, VH: vp.height }; }
+    const c = $('.preview-wrap canvas', s.ui.body), f = s.files.find(x => x.doc || x.img); if (!c) return;
+    const show = f && (!t.previewWhen || t.previewWhen(s.opts));
+    $('.preview-wrap', s.ui.body).classList.toggle('hidden', !show); if (!show) return;
+    $('.preview-cap', s.ui.body).textContent = f.doc ? 'Pratinjau halaman pertama' : 'Pratinjau';
+    if (!f.prev) {
+      if (f.doc) { const page = await f.doc.getPage(1); const vp = page.getViewport({ scale: 1 }); f.prev = { base: await renderPage(page, { width: 560 * Math.min(2, devicePixelRatio || 1) }), VW: vp.width, VH: vp.height }; }
+      else { const im = f.img, k = Math.min(1, 1120 / im.naturalWidth), b = canvas(im.naturalWidth * k, im.naturalHeight * k); b.getContext('2d').drawImage(im, 0, 0, b.width, b.height); f.prev = { base: b, VW: 595, VH: 595 * b.height / b.width }; }
+    }
     cancelAnimationFrame(s.prevRaf);
     s.prevRaf = requestAnimationFrame(async () => {
       const { base, VW, VH } = f.prev; c.width = base.width; c.height = base.height; c.style.width = Math.min(560, base.width) + 'px';

@@ -274,7 +274,7 @@ async function aiRemoveBackground(blob, model = 'medium', onProgress) {
     };
     bgWorker.addEventListener('message', onMsg);
     bgWorker.onerror = e => { bgWorker.removeEventListener('message', onMsg); bgWorker = null; reject(Error(e.message || 'Worker AI gagal dijalankan.')); };
-    bgWorker.postMessage({ id, blob, model, publicPath: window.RAPIPDF_AI_PATH || 'https://staticimgly.com/@imgly/background-removal-data/1.4.5/dist/' });
+    bgWorker.postMessage({ id, blob, model, publicPath: window.PIAWAILAB_AI_PATH || 'https://staticimgly.com/@imgly/background-removal-data/1.4.5/dist/' });
   });
 }
 const STUDIO_BG = ['transparent', '#ffffff', '#f3f4f6', '#111827', '#dbeafe', '#dcfce7', '#fef3c7', '#fce7f3'];

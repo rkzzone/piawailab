@@ -1,29 +1,47 @@
-# RapiPDF
+# PiawaiLab
 
-Alat PDF & gambar yang berjalan **100% di browser** — file tidak pernah diunggah ke server.
+Alat PDF, dokumen & media yang berjalan **100% di browser** — file tidak pernah diunggah ke server.
 
-🔗 **Coba langsung:** https://rkzzone.github.io/rapipdf/
+🔗 **Buka:** https://rkzzone.github.io/piawailab/
 
 ## Fitur
-Merge · Atur halaman · Split · Putar · Compress (pintar, lossless, atau rasterisasi) · PDF ke JPG/PNG/WEBP · JPG/PNG ke PDF · Word & Excel ke PDF · PDF ke Teks · Tanda tangan · Watermark · Nomor halaman · Crop (dengan deteksi otomatis) · Protect (AES-256) · Unlock · Studio gambar (hapus latar AI).
+- **Atur & gabung:** Merge PDF (campur PDF, gambar, Word, Excel), atur halaman, split, putar
+- **Optimasi:** Compress pintar (gambar di dalam PDF dioptimalkan, teks tetap tajam), lossless, atau rasterisasi
+- **Konversi:** PDF ↔ JPG/PNG/WEBP, Word & Excel ke PDF, PDF ke teks
+- **Edit & tanda tangan:** tanda tangan (gambar/ketik/unggah), nomor halaman, crop dengan deteksi otomatis
+- **Keamanan:** Protect (AES-256) & Unlock
+- **Watermark untuk semua jenis file** — PDF, Word, PowerPoint, Excel, gambar, video, audio, teks:
+  - *Basic*: stempel terlihat (teks/logo)
+  - *Advanced*: pesan **tak terlihat**, opsional dienkripsi AES-256-GCM, metode dipilih otomatis per jenis file
+  - *Periksa*: baca & verifikasi watermark dari file
+- **Studio gambar:** hapus latar dengan AI, ganti latar, sesuaikan warna, crop, ubah ukuran
+
+## Watermark tak terlihat — cara kerja
+| Jenis file | Metode | Tahan terhadap |
+|---|---|---|
+| Gambar | Pola grain adaptif per sel (masking perseptual), bit dibaca dari tanda fitur, kode konvolusional K=7 + Viterbi | JPEG ≥50, resize ±60%, putar 90°, kecerahan/kontras |
+| Video | Pola luminans di bidang Y (warna asli tak tersentuh), sel besar, akumulasi lintas frame + Viterbi | Re-encode H.264/VP9, turun ke 480p, potong durasi |
+| Audio | Improved Spread Spectrum di pita 1–5 kHz (4 pembawa PN), sinkronisasi korelasi FFT | MP3/AAC ≥96 kbps, ubah volume, potong awal |
+| PDF | Data terenkripsi di Info dokumen & `/PieceInfo` setiap halaman | Salin, gabung, pisah, kompres struktur |
+| Word/PowerPoint | Karakter lebar-nol di teks + properti kustom | Salin-tempel teks ke dokumen lain |
+| Excel | Properti kustom | Simpan ulang |
+| Teks/HTML | Karakter lebar-nol | Salin-tempel |
+
+Payload: `[versi][flag][waktu]` + pesan. Tanpa sandi → CRC32. Dengan sandi → AES-256-GCM (kunci PBKDF2-SHA256, 150.000 iterasi), dan posisi bit pada gambar/video/audio diacak dengan kunci turunan sandi.
 
 ## Privasi
-Semua pemrosesan terjadi di perangkat pengguna. Tidak ada server, tidak ada analitik. Yang disimpan di browser hanya pengaturan tema dan tanda tangan (jika pengguna memilih "Ingat tanda tangan").
+Tidak ada server, tidak ada analitik. Yang disimpan di browser hanya tema, preferensi simpan, dan tanda tangan (jika dicentang "Ingat"). Service worker hanya meng-cache aset aplikasi agar bisa dipakai offline.
 
 ## Menjalankan secara lokal
-Unduh repo ini lalu buka `index.html` (Chrome/Edge disarankan). Folder `vendor/` harus tetap di samping `index.html`; semua alat jalan offline kecuali unduhan pertama model AI hapus latar (±54–98 MB, lalu di-cache browser).
+Unduh repo lalu buka `index.html` (Chrome/Edge disarankan), atau jalankan server statis apa pun (`python3 -m http.server`). Folder `vendor/` harus tetap di samping `index.html`.
 
 ## Struktur
-- `index.html` — aplikasi siap pakai (hasil build dari `src/`)
-- `src/` — kode sumber: `core.js`, `office.js`, `engines.js`, `tools.js`, `custom.js`, `app.js`, `styles.css`, `shell.html`
-- `build.py` — menggabungkan `src/` menjadi `index.html` (`python3 build.py`)
+- `index.html` — aplikasi (hasil build dari `src/`)
+- `src/` — kode sumber: `core.js`, `office.js`, `wm.js` (watermark), `engines.js`, `tools.js`, `custom.js`, `app.js`, `styles.css`, `shell.html`
+- `build.py` — gabungkan `src/` menjadi `index.html`: `python3 build.py`
+- `sw.js`, `manifest.webmanifest`, `assets/` — PWA (offline & pasang aplikasi)
 - `vendor/` — pustaka pihak ketiga (lihat `NOTICE.md`)
 - `tools/` — sumber bundel worker AI
-
-## Pintasan
-- `/` di beranda: cari alat
-- Merge/Atur halaman: seret kartu (di ponsel: tahan lalu seret), `Ctrl/⌘ + klik`, `Shift + klik`, `Ctrl+A`, `Alt+←/→`, `R`/`Shift+R`, `Delete`, `Esc`
-- `Ctrl+V`: tempel file dari clipboard
 
 ## Lisensi
 GNU AGPL-3.0 — lihat `LICENSE.md` dan `NOTICE.md`.

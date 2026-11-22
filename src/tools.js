@@ -136,6 +136,18 @@ function numPos(o, VW, VH, tw, size) {
   return [col === 'l' ? m : col === 'c' ? (VW - tw) / 2 : VW - m - tw, row === 't' ? m + size * .72 : VH - m];
 }
 
+async function pdfWatermarkBasic(f, o, prog) {
+  const { degrees } = await lib('pdflib'); const doc = await loadForEdit(f.bytes), st = await makeStamp(o);
+  const img = await doc.embedPng(new Uint8Array(await (await toBlob(st.c)).arrayBuffer()));
+  const pages = doc.getPages();
+  pages.forEach((pg, i) => {
+    prog(i / pages.length, `Halaman ${i + 1} dari ${pages.length}…`);
+    const g = pageGeom(pg), [w, h] = st.sizeAt(g.VW);
+    for (const [x, y] of stampPlaces(o, g.VW, g.VH, w, h)) { const p = g.place(x, y, w, h); pg.drawImage(img, { x: p.x, y: p.y, width: w, height: h, rotate: degrees(p.rotate), opacity: o.opacity / 100 }); }
+  });
+  return { name: baseName(f.name) + '-watermark.pdf', blob: await savePdf(doc) };
+}
+
 /* ---------- definisi alat ---------- */
 const ACC = {
   pdf: { accept: '.pdf,application/pdf', test: isPdf, label: 'PDF' },
@@ -143,7 +155,7 @@ const ACC = {
   office: { accept: '.docx,.doc,.xlsx,.xls,.ods,.csv,.txt,.md,.rtf,.pptx,.ppt', test: f => ['docx', 'doc', 'xlsx', 'xls', 'ods', 'csv', 'txt', 'md', 'rtf', 'pptx', 'ppt'].includes(extOf(f.name)), label: 'WORD · EXCEL · CSV · TXT' },
 };
 const accept = (...k) => ({ accept: k.map(x => ACC[x].accept).join(','), test: f => k.some(x => ACC[x].test(f)), acceptLabel: k.map(x => ACC[x].label).join(' · ') });
-const firstBase = s => baseName(s.files?.[0]?.name || s.sources?.[0]?.name || s.file?.name || 'rapipdf');
+const firstBase = s => baseName(s.files?.[0]?.name || s.sources?.[0]?.name || s.file?.name || 'piawailab');
 const nameOpt = (suffix, ext = '.pdf') => ({ type: 'name', k: 'name', suffix: ext, ph: (o, s) => firstBase(s) + suffix });
 
 const CATS = [
@@ -156,8 +168,8 @@ const TOOLS = [
     desc: 'Gabungkan PDF, gambar & dokumen Office jadi satu PDF.', long: 'Gabungkan beberapa file menjadi satu PDF, lalu susun halamannya sesuka Anda.',
     ...accept('pdf', 'img', 'office'), action: 'Gabungkan PDF', sideTitle: 'Gabungkan', sideSub: 'Susun halaman, lalu simpan sebagai satu PDF.',
     perks: ['Atur urutan per halaman', 'Campur PDF, gambar, Word & Excel', 'Tanpa batas jumlah file'],
-    defaults: { name: '', imgSize: 'fit', margin: 0, orient: 'auto' }, defName: s => s.sources.length > 1 ? 'rapipdf-gabungan' : firstBase(s) + '-gabungan',
-    opts: [{ type: 'name', k: 'name', ph: (o, s) => s.sources.length > 1 ? 'rapipdf-gabungan' : firstBase(s) + '-gabungan' },
+    defaults: { name: '', imgSize: 'fit', margin: 0, orient: 'auto' }, defName: s => s.sources.length > 1 ? 'piawailab-gabungan' : firstBase(s) + '-gabungan',
+    opts: [{ type: 'name', k: 'name', ph: (o, s) => s.sources.length > 1 ? 'piawailab-gabungan' : firstBase(s) + '-gabungan' },
     { type: 'seg', k: 'imgSize', label: 'Ukuran halaman untuk gambar', options: [['fit', 'Sesuai gambar'], ['a4', 'A4'], ['letter', 'Letter']] },
     { type: 'seg', k: 'margin', num: true, label: 'Margin gambar', options: [[0, 'Tanpa'], [18, 'Kecil'], [40, 'Besar']], when: o => o.imgSize !== 'fit' },
     { type: 'note', text: 'Halaman PDF disalin apa adanya — teks tetap tajam & bisa dipilih.' }],
@@ -294,30 +306,41 @@ const TOOLS = [
   },
   { id: 'sign', cat: 'edit', name: 'Tanda tangan PDF', icon: 'sign', color: '#e11d48', engine: null, single: true, popular: true, desc: 'Gambar, ketik, atau unggah tanda tangan lalu tempel.', long: 'Buat tanda tangan, lalu tempatkan di halaman mana pun. Tambahkan juga teks atau tanggal.', ...accept('pdf'), action: 'Simpan PDF bertanda tangan', perks: ['Gambar, ketik, atau unggah', 'Seret & ubah ukuran bebas', 'Tambah teks dan tanggal'], defaults: { name: '' } },
   {
-    id: 'watermark', cat: 'edit', name: 'Watermark PDF', icon: 'drop', color: '#6366f1', engine: FilesEngine, preview: (ctx, p, o) => drawStampPreview(ctx, p, o),
-    desc: 'Tambahkan watermark teks atau logo.', long: 'Beri tanda pada setiap halaman dengan teks atau logo — atur posisi, sudut, dan transparansi.',
-    ...accept('pdf'), action: 'Tambah watermark', sideTitle: 'Watermark', perks: ['Teks atau logo', 'Satu di tengah atau pola berulang', 'Pratinjau langsung'],
-    defaults: { kind: 'text', text: 'RAHASIA', size: 64, color: '#e0393e', opacity: 22, angle: 35, layout: 'center', image: null, scale: 40 },
-    opts: [{ type: 'seg', k: 'kind', label: 'Jenis', options: [['text', 'Teks'], ['image', 'Gambar / logo']] },
-    { type: 'text', k: 'text', label: 'Teks watermark', maxlength: 80, when: o => o.kind === 'text' },
-    { type: 'range', k: 'size', label: 'Ukuran huruf', min: 16, max: 160, fmt: v => v + ' pt', when: o => o.kind === 'text' },
-    { type: 'color', k: 'color', label: 'Warna', presets: ['#e0393e', '#111827', '#6a4cff', '#0ea5a4', '#9ca3af'], when: o => o.kind === 'text' },
-    { type: 'file', k: 'image', label: 'Gambar / logo', accept: 'image/png,image/jpeg,image/webp', help: 'PNG transparan memberi hasil terbaik.', when: o => o.kind === 'image' },
-    { type: 'range', k: 'scale', label: 'Lebar logo', min: 10, max: 100, fmt: v => v + '%', when: o => o.kind === 'image' },
-    { type: 'range', k: 'opacity', label: 'Transparansi', min: 5, max: 100, fmt: v => v + '%' },
-    { type: 'range', k: 'angle', label: 'Sudut', min: -90, max: 90, fmt: v => v + '°' },
-    { type: 'seg', k: 'layout', label: 'Penempatan', options: [['center', 'Tengah'], ['tile', 'Pola berulang']] }],
-    validate: o => o.kind === 'text' ? (!o.text.trim() && 'Tulis teks watermark.') : (!o.image && 'Pilih gambar/logo watermark.'),
+    id: 'watermark', cat: 'edit', name: 'Watermark', icon: 'drop', color: '#6366f1', engine: FilesEngine, popular: true, badge: 'Baru',
+    preview: (ctx, p, o) => o.mode === 'basic' && drawStampPreview(ctx, p, o), previewWhen: o => o.mode === 'basic',
+    desc: 'Watermark terlihat atau tak terlihat & terenkripsi untuk PDF, Office, gambar, video, audio, teks.', long: 'Basic: stempel yang terlihat. Advanced: pesan tak terlihat & terenkripsi yang bisa dibuktikan kembali — metodenya dipilih otomatis sesuai jenis file.',
+    accept: '*/*', test: f => !!wmKind(f), acceptLabel: 'PDF · WORD · PPT · EXCEL · GAMBAR · VIDEO · AUDIO · TEKS',
+    action: 'Terapkan watermark', actionFor: o => o.mode === 'verify' ? 'Periksa watermark' : 'Terapkan watermark', sideTitle: 'Watermark',
+    perks: ['Basic: stempel teks/logo terlihat', 'Advanced: tak terlihat + AES-256', 'Periksa & buktikan kepemilikan'],
+    defaults: { mode: 'basic', kind: 'text', text: 'RAHASIA', size: 64, color: '#e0393e', opacity: 22, angle: 35, layout: 'center', image: null, scale: 40, wmText: '', wmPass: '', wmStrength: 'std' },
+    fileNote: (f, o) => { const k = f.kind; if (!k) return ''; if (o.mode === 'verify') return 'Siap diperiksa'; return WM_METHOD[o.mode]?.[k] || ''; },
+    opts: [
+      { type: 'seg', k: 'mode', label: 'Mode', options: [['basic', 'Basic'], ['advanced', 'Advanced'], ['verify', 'Periksa']] },
+      { type: 'note', when: o => o.mode === 'basic', text: 'Stempel yang terlihat — cocok untuk menandai draf, salinan, atau dokumen rahasia.' },
+      { type: 'note', when: o => o.mode === 'advanced', text: 'Pesan disisipkan <b>tanpa terlihat</b>. Metodenya dipilih otomatis untuk tiap jenis file — lihat label di daftar file.' },
+      { type: 'note', when: o => o.mode === 'verify', text: 'Unggah file yang ingin dicek. Jika watermark dibuat dengan kata sandi, masukkan sandinya — tanpa sandi, letak watermark tidak bisa ditemukan.' },
+      { type: 'seg', k: 'kind', label: 'Jenis', options: [['text', 'Teks'], ['image', 'Gambar / logo']], when: o => o.mode === 'basic' },
+      { type: 'text', k: 'text', label: 'Teks watermark', maxlength: 80, when: o => o.mode === 'basic' && o.kind === 'text' },
+      { type: 'range', k: 'size', label: 'Ukuran huruf', min: 16, max: 160, fmt: v => v + ' pt', when: o => o.mode === 'basic' && o.kind === 'text' },
+      { type: 'color', k: 'color', label: 'Warna', presets: ['#e0393e', '#111827', '#6a4cff', '#0ea5a4', '#9ca3af'], when: o => o.mode === 'basic' && o.kind === 'text' },
+      { type: 'file', k: 'image', label: 'Gambar / logo', accept: 'image/png,image/jpeg,image/webp', help: 'PNG transparan memberi hasil terbaik. (Word/PPT/Excel memakai teks.)', when: o => o.mode === 'basic' && o.kind === 'image' },
+      { type: 'range', k: 'scale', label: 'Lebar logo', min: 10, max: 100, fmt: v => v + '%', when: o => o.mode === 'basic' && o.kind === 'image' },
+      { type: 'range', k: 'opacity', label: 'Transparansi', min: 5, max: 100, fmt: v => v + '%', when: o => o.mode === 'basic' },
+      { type: 'range', k: 'angle', label: 'Sudut', min: -90, max: 90, fmt: v => v + '°', when: o => o.mode === 'basic' },
+      { type: 'seg', k: 'layout', label: 'Penempatan', options: [['center', 'Tengah'], ['tile', 'Pola berulang']], when: o => o.mode === 'basic' },
+      { type: 'text', k: 'wmText', label: 'Pesan tersembunyi', maxlength: WM_MAX_MSG, ph: 'mis. © Erik 2026 · untuk Klien A', help: 'Maks. 64 karakter. Pesan pendek = lebih tahan di gambar, video & audio.', when: o => o.mode === 'advanced' },
+      { type: 'password', k: 'wmPass', label: 'Kata sandi (opsional)', ph: 'Kosongkan agar bisa dicek siapa pun', help: 'Dengan sandi: pesan dienkripsi AES-256-GCM dan letaknya diacak — hanya pemegang sandi yang bisa membaca, dan perubahan isi terdeteksi.', when: o => o.mode !== 'basic' },
+      { type: 'seg', k: 'wmStrength', label: 'Kekuatan (gambar, video, audio)', options: [['soft', 'Halus'], ['std', 'Standar'], ['strong', 'Kuat']], help: 'Halus = paling tak kasatmata · Kuat = paling tahan kompresi.', when: (o, s) => o.mode === 'advanced' && s.files.some(f => ['image', 'video', 'audio'].includes(f.kind)) },
+      { type: 'custom', id: 'robust', when: (o, s) => o.mode === 'advanced' && s.files.length, html: (o, s) => { const kinds = [...new Set(s.files.map(f => f.kind).filter(Boolean))]; return `<span class="lbl">Ketahanan</span>${kinds.map(k => `<div class="note">${ic('shield')}<span><b>${{ pdf: 'PDF', image: 'Gambar', video: 'Video', audio: 'Audio', docx: 'Word', pptx: 'PowerPoint', xlsx: 'Excel', text: 'Teks' }[k]}</b> — ${WM_ROBUST[k]}</span></div>`).join('')}`; } },
+    ],
+    validate: (o, s) => {
+      if (o.mode === 'basic') { if (o.kind === 'text' ? !o.text.trim() : !o.image) return o.kind === 'text' ? 'Tulis teks watermark.' : 'Pilih gambar/logo watermark.'; }
+      if (o.mode === 'advanced') { if (!o.wmText.trim()) return 'Tulis pesan tersembunyi.'; if (o.wmPass && o.wmPass.length < 4) return 'Kata sandi minimal 4 karakter.'; }
+    },
     async process(f, o, prog) {
-      const { degrees } = await lib('pdflib'); const doc = await loadForEdit(f.bytes), st = await makeStamp(o);
-      const img = await doc.embedPng(new Uint8Array(await (await toBlob(st.c)).arrayBuffer()));
-      const pages = doc.getPages();
-      pages.forEach((pg, i) => {
-        prog(i / pages.length, `Halaman ${i + 1} dari ${pages.length}…`);
-        const g = pageGeom(pg), [w, h] = st.sizeAt(g.VW);
-        for (const [x, y] of stampPlaces(o, g.VW, g.VH, w, h)) { const p = g.place(x, y, w, h); pg.drawImage(img, { x: p.x, y: p.y, width: w, height: h, rotate: degrees(p.rotate), opacity: o.opacity / 100 }); }
-      });
-      return [{ name: baseName(f.name) + '-watermark.pdf', blob: await savePdf(doc) }];
+      if (o.mode === 'verify') return [{ name: f.name, report: await wmDetect(f, o, prog) }];
+      if (o.mode === 'advanced') return [{ ...(await wmAdvanced(f, { ...o, wmText: o.wmText.trim() }, prog)), method: WM_METHOD.advanced[f.kind] }];
+      return [{ ...(await wmBasic(f, o, prog)), method: WM_METHOD.basic[f.kind] }];
     }
   },
   {
@@ -389,7 +412,7 @@ const TOOLS = [
       return [{ name, blob: new Blob([out], { type: 'application/pdf' }) }];
     }
   },
-  { id: 'studio', cat: 'image', name: 'Studio gambar', icon: 'wand', color: '#c026d3', engine: null, single: true, popular: true, isNew: true, desc: 'Hapus latar dengan AI, ganti latar, crop & ubah ukuran.', long: 'Hapus latar dengan AI di perangkat, ganti dengan warna atau foto, sesuaikan warna, potong, dan ubah ukuran.', ...accept('img'), action: 'Simpan gambar', perks: ['Hapus latar dengan AI', 'Ganti latar warna atau foto', 'Ekspor PNG, JPG, WEBP'], defaults: {} },
+  { id: 'studio', cat: 'image', name: 'Studio gambar', icon: 'wand', color: '#c026d3', engine: null, single: true, popular: true, badge: 'AI', desc: 'Hapus latar dengan AI, ganti latar, crop & ubah ukuran.', long: 'Hapus latar dengan AI di perangkat, ganti dengan warna atau foto, sesuaikan warna, potong, dan ubah ukuran.', ...accept('img'), action: 'Simpan gambar', perks: ['Hapus latar dengan AI', 'Ganti latar warna atau foto', 'Ekspor PNG, JPG, WEBP'], defaults: {} },
 ];
 const T = Object.fromEntries(TOOLS.map(t => [t.id, t]));
 TOOLS.forEach(t => t.defName ||= s => firstBase(s));

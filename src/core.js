@@ -19,9 +19,16 @@ const isImage = f => /^image\//.test(f.type) || ['png', 'jpg', 'jpeg', 'webp', '
 const toBlob = (c, type = 'image/png', q) => new Promise((res, rej) => c.toBlob(b => b ? res(b) : rej(Error('Gambar terlalu besar untuk diproses browser.')), type, q));
 const u8 = b => b instanceof Uint8Array ? b : new Uint8Array(b);
 const copyBytes = b => (b instanceof ArrayBuffer ? new Uint8Array(b.slice(0)) : new Uint8Array(b));
-const store = {
-  get(k, d) { try { const v = localStorage.getItem('rapipdf:' + k); return v == null ? d : JSON.parse(v); } catch { return d; } },
-  set(k, v) { try { localStorage.setItem('rapipdf:' + k, JSON.stringify(v)); } catch { } }
+const store = { // localStorage dengan prefiks; migrasi otomatis dari nama lama (rapipdf:)
+  get(k, d) {
+    try {
+      let v = localStorage.getItem('piawailab:' + k);
+      if (v == null) { const o = localStorage.getItem('rapipdf:' + k); if (o != null) { localStorage.setItem('piawailab:' + k, o); localStorage.removeItem('rapipdf:' + k); v = o; } }
+      return v == null ? d : JSON.parse(v);
+    } catch { return d; }
+  },
+  set(k, v) { try { localStorage.setItem('piawailab:' + k, JSON.stringify(v)); } catch { } },
+  clearAll() { try { Object.keys(localStorage).filter(k => /^(piawailab|rapipdf):/.test(k)).forEach(k => localStorage.removeItem(k)); } catch { } }
 };
 function canvas(w, h) { const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(w)); c.height = Math.max(1, Math.round(h)); return c; }
 async function decodeImage(src) { // File/Blob -> HTMLImageElement (orientation EXIF diterapkan browser)
@@ -131,6 +138,7 @@ const LIBS = {
   xlsx: { file: 'xlsx.full.min.js', cdn: 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js', test: () => window.XLSX },
   h2c: { file: 'html2canvas.min.js', cdn: 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js', test: () => window.html2canvas },
   docx: { file: 'docx-preview.min.js', cdn: 'https://unpkg.com/docx-preview@0.3.6/dist/docx-preview.min.js', test: () => window.docx?.renderAsync && window.docx, deps: ['jszip'] },
+  mediabunny: { file: 'mediabunny.min.js', cdn: 'https://cdn.jsdelivr.net/npm/mediabunny@1.66.2/dist/bundles/mediabunny.min.cjs', test: () => window.Mediabunny },
   qpdf: { file: 'qpdf.js', cdn: 'https://cdn.jsdelivr.net/npm/@soulehshaikh99/qpdf-wasm@0.4.1/dist/qpdf.js', test: () => window.Module },
 };
 const PDFJS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
@@ -149,7 +157,7 @@ function lib(key) {
     for (const d of L.deps || []) await lib(d);
     if (!L.test()) { try { await loadScript(VENDOR + L.file); } catch { } }
     if (!L.test()) { try { await loadScript(L.cdn); } catch { } }
-    if (!L.test()) { delete libCache[key]; throw Error('Komponen pemroses tidak dapat dimuat. Pastikan folder "vendor" ada di samping index.html, atau sambungkan internet.'); }
+    if (!L.test()) { delete libCache[key]; throw Error('Komponen pemroses gagal dimuat. Periksa koneksi internet lalu muat ulang halaman.'); }
     return L.test();
   })();
 }
@@ -217,7 +225,7 @@ async function loadForEdit(bytes) {
   }
 }
 async function savePdf(doc) {
-  doc.setProducer('RapiPDF'); doc.setModificationDate(new Date());
+  doc.setProducer('PiawaiLab'); doc.setModificationDate(new Date());
   return new Blob([await doc.save({ useObjectStreams: true })], { type: 'application/pdf' });
 }
 
@@ -320,6 +328,16 @@ async function normalizeImage(file, maxSide = 6000) {
   const mime = keepAlpha ? 'image/png' : 'image/jpeg';
   const blob = await toBlob(c, mime, .92);
   return { bytes: new Uint8Array(await blob.arrayBuffer()), mime, w: c.width, h: c.height, img };
+}
+async function videoPoster(file, w = 160) {
+  const v = document.createElement('video'), url = URL.createObjectURL(file);
+  v.muted = true; v.preload = 'metadata'; v.src = url;
+  try {
+    await new Promise((res, rej) => { v.onloadeddata = res; v.onerror = () => rej(Error('video')); setTimeout(() => rej(Error('timeout')), 6000); });
+    v.currentTime = Math.min(1, (v.duration || 2) / 3); await new Promise(r => { v.onseeked = r; setTimeout(r, 2500); });
+    const k = w / v.videoWidth, c = canvas(v.videoWidth * k, v.videoHeight * k); c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    return URL.createObjectURL(await toBlob(c, 'image/jpeg', .8));
+  } finally { URL.revokeObjectURL(url); }
 }
 async function thumbFrom(source, w = 320) {
   const s = Math.min(1, w / (source.naturalWidth || source.width));
