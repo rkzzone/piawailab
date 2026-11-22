@@ -20,6 +20,7 @@ function optField(f, o, s) {
     case 'seg': return `<div class="opt"><span class="lbl">${f.label}</span><div class="seg">${f.options.map(([val, txt]) => `<button type="button" data-k="${f.k}" data-v="${val}" class="${String(v) === String(val) ? 'on' : ''}">${txt}</button>`).join('')}</div>${help}</div>`;
     case 'radio': return `<div class="opt">${f.label ? `<span class="lbl">${f.label}</span>` : ''}<div class="rcards">${f.options.filter(x => !x.when || x.when(o, s)).map(x => `<button type="button" class="rcard ${String(v) === String(x.v) ? 'on' : ''}" data-k="${f.k}" data-v="${x.v}"><span class="dot"></span><span style="text-align:left">${x.tag ? `<span class="tag">${x.tag}</span>` : ''}<b>${x.t}</b><small>${x.d}</small></span></button>`).join('')}</div>${help}</div>`;
     case 'range': return `<div class="opt">${lab}<input type="range" id="o-${f.k}" data-k="${f.k}" min="${f.min}" max="${f.max}" step="${f.step || 1}" value="${v}">${help}</div>`;
+    case 'addon': return `<label class="addon ${v ? 'on' : ''}"><span class="addon-ic">${ic(f.icon || 'plus')}</span><span class="addon-t"><b>${f.label}</b>${f.help ? `<small>${f.help}</small>` : ''}</span><span class="sw"><input type="checkbox" data-k="${f.k}" ${v ? 'checked' : ''}><i></i></span></label>`;
     case 'toggle': return `<label class="tog"><span><b>${f.label}</b>${f.help ? `<small>${f.help}</small>` : ''}</span><span class="sw"><input type="checkbox" data-k="${f.k}" ${v ? 'checked' : ''}><i></i></span></label>`;
     case 'color': return `<div class="opt"><span class="lbl">${f.label}</span><div class="swatches">${(f.presets || []).map(c => `<button type="button" data-k="${f.k}" data-v="${c}" class="${v === c ? 'on' : ''}" style="background:${c}" aria-label="${c}"></button>`).join('')}<input type="color" data-k="${f.k}" value="${v}" aria-label="Warna lain"></div></div>`;
     case 'select': return `<div class="opt">${lab}<select class="inp" id="o-${f.k}" data-k="${f.k}">${f.options.map(([val, txt]) => `<option value="${val}" ${String(v) === String(val) ? 'selected' : ''}>${txt}</option>`).join('')}</select>${help}</div>`;
@@ -394,6 +395,7 @@ const FilesEngine = {
       if (s.files.some(f => f.loading)) { toast('Menunggu file selesai dibaca…'); while (s.files.some(f => f.loading)) await sleep(150); }
       if (!s.files.length) return toast('Tambahkan file terlebih dahulu.', 'err');
       const err = t.validate?.(s.opts, s); if (err) return toast(err, 'err');
+      if (t.remember) store.set('opts:' + t.id, Object.fromEntries(Object.entries(s.opts).filter(([k]) => !SECRET_KEYS.includes(k))));
       runJob(t, s, async prog => {
         const outs = [];
         for (let i = 0; i < s.files.length; i++) {

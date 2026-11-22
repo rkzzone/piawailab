@@ -472,6 +472,14 @@ input[type=color]{width:44px;height:36px;border:1px solid var(--line);border-rad
 .perm-sum li.ok .ic{color:var(--ok)}.perm-sum li.no{color:var(--muted)}.perm-sum li.no .ic{color:var(--danger)}
 .seg{flex-wrap:wrap}
 
+.addon{display:flex;gap:12px;align-items:flex-start;padding:14px;border-radius:14px;border:1.5px dashed var(--line-2);cursor:pointer;transition:.15s;margin-top:4px}
+.addon:hover{border-color:var(--tc)}
+.addon.on{border-style:solid;border-color:var(--tc);background:color-mix(in srgb,var(--tc) 6%,var(--surface))}
+.addon-ic{width:34px;height:34px;border-radius:10px;display:grid;place-items:center;flex:none;background:var(--surface-2);color:var(--ink-2)}
+.addon.on .addon-ic{background:var(--tc);color:#fff}
+.addon-ic .ic{width:17px;height:17px}
+.addon-t{flex:1;min-width:0}.addon-t b{display:block;font-size:13px}.addon-t small{display:block;margin-top:2px;color:var(--muted);font-size:11.5px;line-height:1.45}
+
 </style>
 </head>
 <body>
@@ -1709,6 +1717,7 @@ function optField(f, o, s) {
     case 'seg': return `<div class="opt"><span class="lbl">${f.label}</span><div class="seg">${f.options.map(([val, txt]) => `<button type="button" data-k="${f.k}" data-v="${val}" class="${String(v) === String(val) ? 'on' : ''}">${txt}</button>`).join('')}</div>${help}</div>`;
     case 'radio': return `<div class="opt">${f.label ? `<span class="lbl">${f.label}</span>` : ''}<div class="rcards">${f.options.filter(x => !x.when || x.when(o, s)).map(x => `<button type="button" class="rcard ${String(v) === String(x.v) ? 'on' : ''}" data-k="${f.k}" data-v="${x.v}"><span class="dot"></span><span style="text-align:left">${x.tag ? `<span class="tag">${x.tag}</span>` : ''}<b>${x.t}</b><small>${x.d}</small></span></button>`).join('')}</div>${help}</div>`;
     case 'range': return `<div class="opt">${lab}<input type="range" id="o-${f.k}" data-k="${f.k}" min="${f.min}" max="${f.max}" step="${f.step || 1}" value="${v}">${help}</div>`;
+    case 'addon': return `<label class="addon ${v ? 'on' : ''}"><span class="addon-ic">${ic(f.icon || 'plus')}</span><span class="addon-t"><b>${f.label}</b>${f.help ? `<small>${f.help}</small>` : ''}</span><span class="sw"><input type="checkbox" data-k="${f.k}" ${v ? 'checked' : ''}><i></i></span></label>`;
     case 'toggle': return `<label class="tog"><span><b>${f.label}</b>${f.help ? `<small>${f.help}</small>` : ''}</span><span class="sw"><input type="checkbox" data-k="${f.k}" ${v ? 'checked' : ''}><i></i></span></label>`;
     case 'color': return `<div class="opt"><span class="lbl">${f.label}</span><div class="swatches">${(f.presets || []).map(c => `<button type="button" data-k="${f.k}" data-v="${c}" class="${v === c ? 'on' : ''}" style="background:${c}" aria-label="${c}"></button>`).join('')}<input type="color" data-k="${f.k}" value="${v}" aria-label="Warna lain"></div></div>`;
     case 'select': return `<div class="opt">${lab}<select class="inp" id="o-${f.k}" data-k="${f.k}">${f.options.map(([val, txt]) => `<option value="${val}" ${String(v) === String(val) ? 'selected' : ''}>${txt}</option>`).join('')}</select>${help}</div>`;
@@ -2083,6 +2092,7 @@ const FilesEngine = {
       if (s.files.some(f => f.loading)) { toast('Menunggu file selesai dibaca…'); while (s.files.some(f => f.loading)) await sleep(150); }
       if (!s.files.length) return toast('Tambahkan file terlebih dahulu.', 'err');
       const err = t.validate?.(s.opts, s); if (err) return toast(err, 'err');
+      if (t.remember) store.set('opts:' + t.id, Object.fromEntries(Object.entries(s.opts).filter(([k]) => !SECRET_KEYS.includes(k))));
       runJob(t, s, async prog => {
         const outs = [];
         for (let i = 0; i < s.files.length; i++) {
@@ -2283,6 +2293,150 @@ const accept = (...k) => ({ accept: k.map(x => ACC[x].accept).join(','), test: f
 const firstBase = s => baseName(s.files?.[0]?.name || s.sources?.[0]?.name || s.file?.name || 'piawailab');
 const nameOpt = (suffix, ext = '.pdf') => ({ type: 'name', k: 'name', suffix: ext, ph: (o, s) => firstBase(s) + suffix });
 
+/* ---------- Watermark & Protect: komponen bersama (bisa dipakai sendiri atau digabung) ---------- */
+const isPdfName = n => /\.pdf$/i.test(n);
+const WM_DEFAULTS = { mode: 'basic', kind: 'text', text: 'RAHASIA', size: 64, color: '#e0393e', opacity: 22, angle: 35, layout: 'center', image: null, scale: 40, wmText: '', wmPass: '', wmStrength: 'std' };
+const PROT_DEFAULTS = { access: 'password', pw: '', pw2: '', owner: '', preset: 'print', print: 'full', copy: false, modify: false, assemble: false, annotate: false, form: false, algo: 'aes256', clearMeta: false };
+const PROT_PRESETS = { view: { print: 'none', copy: false, modify: false, assemble: false, annotate: false, form: false }, print: { print: 'full', copy: false, modify: false, assemble: false, annotate: false, form: false }, review: { print: 'full', copy: false, modify: false, assemble: false, annotate: true, form: true }, form: { print: 'full', copy: false, modify: false, assemble: false, annotate: false, form: true }, all: { print: 'full', copy: true, modify: true, assemble: true, annotate: true, form: true } };
+function protOnOpt(k, o) {
+  if (k === 'preset' && PROT_PRESETS[o.preset]) { Object.assign(o, PROT_PRESETS[o.preset]); return true; }
+  if (['print', 'copy', 'modify', 'assemble', 'annotate', 'form'].includes(k)) { if (k === 'annotate' && o.annotate) o.form = true; const m = Object.entries(PROT_PRESETS).find(([, v]) => Object.keys(v).every(x => v[x] === o[x])); o.preset = m ? m[0] : 'custom'; return true; }
+  if (k === 'access' && o.access === 'open' && o.preset === 'all') { o.preset = 'print'; Object.assign(o, PROT_PRESETS.print); return true; }
+}
+const pwStrength = (box, o) => {
+  const p = o.pw; let sc = 0; if (p.length >= 6) sc++; if (p.length >= 10) sc++; if (/[A-Z]/.test(p) && /[a-z]/.test(p)) sc++; if (/\d/.test(p)) sc++; if (/[^A-Za-z0-9]/.test(p)) sc++;
+  const lv = [['', '#0000'], ['Lemah', '#e0393e'], ['Lemah', '#e0393e'], ['Cukup', '#f59e0b'], ['Kuat', '#14a058'], ['Sangat kuat', '#14a058']][p ? Math.max(1, sc) : 0];
+  const bar = $('.strength i', box); if (bar) { bar.style.width = (p ? Math.max(1, sc) : 0) * 20 + '%'; bar.style.background = lv[1]; } const tx = $('.str-t', box); if (tx) tx.textContent = lv[0];
+};
+const protFields = () => [
+  { type: 'radio', k: 'access', label: 'Siapa yang bisa membuka', options: [
+    { v: 'password', t: 'Hanya yang tahu kata sandi', d: 'File dienkripsi; tanpa sandi isinya tidak bisa dibuka sama sekali.' },
+    { v: 'open', t: 'Siapa pun, tanpa kata sandi', tag: 'Untuk dibagikan', d: 'Semua orang bisa membuka & membaca, tetapi hanya bisa melakukan yang Anda izinkan di bawah.' }] },
+  { type: 'password', k: 'pw', label: 'Kata sandi pembuka', ph: 'Minimal 6 karakter', when: o => o.access === 'password', extra: () => `<div class="strength"><i></i></div><small class="str-t"></small>`, live: pwStrength },
+  { type: 'password', k: 'pw2', label: 'Ulangi kata sandi', ph: 'Ketik ulang kata sandi', when: o => o.access === 'password' },
+  { type: 'title', text: 'Izin untuk pembaca' },
+  { type: 'seg', k: 'preset', label: 'Pilihan cepat', options: [['view', 'Hanya baca'], ['print', 'Baca & cetak'], ['review', 'Review'], ['form', 'Isi formulir'], ['all', 'Semua']], help: o => o.preset === 'custom' ? 'Kustom — diatur manual di bawah.' : '' },
+  { type: 'seg', k: 'print', label: 'Mencetak', options: [['full', 'Kualitas penuh'], ['low', 'Resolusi rendah'], ['none', 'Tidak boleh']] },
+  { type: 'toggle', k: 'copy', label: 'Menyalin teks & gambar', help: 'Termasuk memilih teks, salin-tempel, dan mengekstrak gambar.' },
+  { type: 'toggle', k: 'modify', label: 'Mengubah isi dokumen', help: 'Mengedit teks, gambar, dan objek lain di halaman.' },
+  { type: 'toggle', k: 'assemble', label: 'Menyusun halaman', help: 'Menyisipkan, menghapus, memutar halaman, serta bookmark & thumbnail.' },
+  { type: 'toggle', k: 'annotate', label: 'Mengomentari', help: 'Catatan, sorotan, coretan, dan anotasi lain. Otomatis mengizinkan isi formulir.' },
+  { type: 'toggle', k: 'form', label: 'Mengisi formulir & menandatangani', help: 'Mengisi kolom formulir yang sudah ada, termasuk kolom tanda tangan digital.' },
+  { type: 'custom', id: 'sum', html: o => {
+    const ok = (b, t) => `<li class="${b ? 'ok' : 'no'}">${ic(b ? 'check' : 'x')}${t}</li>`;
+    return `<span class="lbl">Ringkasan yang dilihat pembaca</span><ul class="perm-sum">${ok(true, 'Membuka & membaca')}${ok(o.print !== 'none', 'Mencetak' + (o.print === 'low' ? ' (resolusi rendah)' : ''))}${ok(o.copy, 'Menyalin konten')}${ok(true, 'Menyalin untuk aksesibilitas — selalu diizinkan standar PDF')}${ok(o.modify, 'Mengubah dokumen')}${ok(o.assemble, 'Menyusun halaman')}${ok(o.annotate, 'Komentar')}${ok(o.form || o.annotate, 'Mengisi formulir')}${ok(o.form || o.annotate, 'Menandatangani')}</ul>`;
+  } },
+  { type: 'title', text: 'Lanjutan' },
+  { type: 'password', k: 'owner', label: 'Kata sandi pemilik (opsional)', ph: 'Kosongkan = dibuat acak', help: 'Dipakai untuk mengubah izin nanti di Adobe Acrobat. Jika dikosongkan, dibuat acak dan tidak disimpan.' },
+  { type: 'select', k: 'algo', label: 'Enkripsi', options: [['aes256', 'AES-256 (disarankan)'], ['aes128', 'AES-128 · Acrobat 7+'], ['rc4', 'RC4-128 · pembaca PDF sangat lama']] },
+  { type: 'toggle', k: 'clearMeta', label: 'Biarkan metadata terbaca', help: 'Judul & penulis tetap bisa dibaca mesin pencari/indeks tanpa membuka isi.' },
+  { type: 'note', tone: 'warn', when: o => o.access === 'open', text: 'Tanpa kata sandi pembuka, izin dipatuhi oleh pembaca PDF standar (Adobe Acrobat/Reader, Chrome, Edge, Foxit), tetapi bisa diabaikan oleh alat tertentu. Watermark tetap menjadi bukti kepemilikan.' },
+  { type: 'note', tone: 'warn', when: o => o.access === 'password', text: 'Simpan kata sandi Anda baik-baik — tanpa kata sandi, PDF tidak dapat dibuka.' },
+  { type: 'note', text: 'Tidak ada PDF yang bisa mencegah orang menyimpan salinan file, mengambil screenshot, atau memotret layar.' },
+];
+function protValidate(o) {
+  if (o.access === 'password') { if (o.pw.length < 6) return 'Kata sandi pembuka minimal 6 karakter.'; if (o.pw !== o.pw2) return 'Kedua kata sandi belum sama.'; if (o.owner && o.owner === o.pw) return 'Kata sandi pemilik harus berbeda dari kata sandi pembuka.'; }
+  if (o.access === 'open' && o.preset === 'all') return 'Tanpa kata sandi dan semua izin diberikan, tidak ada yang dilindungi. Batasi minimal satu izin.';
+}
+async function protApply(bytes, o) { // → Uint8Array PDF terenkripsi
+  const user = o.access === 'password' ? o.pw : '';
+  const restrict = !(o.print === 'full' && o.copy && o.modify && o.assemble && o.annotate && o.form);
+  const owner = o.owner || (!restrict && user ? user : Array.from(crypto.getRandomValues(new Uint8Array(18)), b => b.toString(16).padStart(2, '0')).join(''));
+  const yn = v => v ? 'y' : 'n';
+  const args = ['/in.pdf', '--encrypt', `--user-password=${user}`, `--owner-password=${owner}`, `--bits=${{ aes256: '256', aes128: '128', rc4: '128' }[o.algo] || '256'}`,
+    `--print=${o.print}`, `--extract=${yn(o.copy)}`, `--modify-other=${yn(o.modify)}`, `--assemble=${yn(o.assemble)}`, `--annotate=${yn(o.annotate)}`, `--form=${yn(o.form || o.annotate)}`];
+  if (o.algo === 'aes128') args.push('--use-aes=y'); if (o.algo === 'rc4') args.push('--use-aes=n');
+  if (o.clearMeta) args.push('--cleartext-metadata');
+  args.push('--'); if (o.algo === 'rc4') args.push('--allow-weak-crypto'); args.push('/out.pdf');
+  const { code, out } = await qpdf(args, bytes);
+  if ((code !== 0 && code !== 3) || !out) throw Error('Enkripsi PDF gagal.');
+  return out;
+}
+const protLabel = o => o.access === 'open' ? 'izin terbatas, tanpa sandi' : 'dikunci kata sandi';
+const wmFields = (verify = true) => [
+  { type: 'seg', k: 'mode', label: verify ? 'Mode' : 'Jenis watermark', options: [['basic', 'Basic · terlihat'], ['advanced', 'Advanced · tak terlihat'], ...(verify ? [['verify', 'Periksa']] : [])] },
+  { type: 'note', when: o => o.mode === 'basic', text: 'Stempel yang terlihat — cocok untuk menandai draf, salinan, atau dokumen rahasia.' },
+  { type: 'note', when: o => o.mode === 'advanced', text: 'Pesan disisipkan <b>tanpa terlihat</b>. Metodenya dipilih otomatis untuk tiap jenis file — lihat label di daftar file.' },
+  { type: 'note', when: o => o.mode === 'verify', text: 'Unggah file yang ingin dicek. Jika watermark dibuat dengan kata sandi, masukkan sandinya — tanpa sandi, letak watermark tidak bisa ditemukan.' },
+  { type: 'seg', k: 'kind', label: 'Isi stempel', options: [['text', 'Teks'], ['image', 'Gambar / logo']], when: o => o.mode === 'basic' },
+  { type: 'text', k: 'text', label: 'Teks watermark', maxlength: 80, when: o => o.mode === 'basic' && o.kind === 'text' },
+  { type: 'range', k: 'size', label: 'Ukuran huruf', min: 16, max: 160, fmt: v => v + ' pt', when: o => o.mode === 'basic' && o.kind === 'text' },
+  { type: 'color', k: 'color', label: 'Warna', presets: ['#e0393e', '#111827', '#6a4cff', '#0ea5a4', '#9ca3af'], when: o => o.mode === 'basic' && o.kind === 'text' },
+  { type: 'file', k: 'image', label: 'Gambar / logo', accept: 'image/png,image/jpeg,image/webp', help: 'PNG transparan memberi hasil terbaik. (Word/PPT/Excel memakai teks.)', when: o => o.mode === 'basic' && o.kind === 'image' },
+  { type: 'range', k: 'scale', label: 'Lebar logo', min: 10, max: 100, fmt: v => v + '%', when: o => o.mode === 'basic' && o.kind === 'image' },
+  { type: 'range', k: 'opacity', label: 'Transparansi', min: 5, max: 100, fmt: v => v + '%', when: o => o.mode === 'basic' },
+  { type: 'range', k: 'angle', label: 'Sudut', min: -90, max: 90, fmt: v => v + '°', when: o => o.mode === 'basic' },
+  { type: 'seg', k: 'layout', label: 'Penempatan', options: [['center', 'Tengah'], ['tile', 'Pola berulang']], when: o => o.mode === 'basic' },
+  { type: 'text', k: 'wmText', label: 'Pesan tersembunyi', maxlength: WM_MAX_MSG, ph: 'mis. © Erik 2026 · untuk Klien A', help: 'Maks. 64 karakter. Pesan pendek = lebih tahan di gambar, video & audio.', when: o => o.mode === 'advanced' },
+  { type: 'password', k: 'wmPass', label: 'Kata sandi watermark (opsional)', ph: 'Kosongkan agar bisa dicek siapa pun', help: 'Dengan sandi: pesan dienkripsi AES-256-GCM dan letaknya diacak — hanya pemegang sandi yang bisa membaca, dan perubahan isi terdeteksi.', when: o => o.mode !== 'basic' },
+  { type: 'seg', k: 'wmStrength', label: 'Kekuatan (gambar, video, audio)', options: [['soft', 'Halus'], ['std', 'Standar'], ['strong', 'Kuat']], help: 'Halus = paling tak kasatmata · Kuat = paling tahan kompresi.', when: (o, s) => o.mode === 'advanced' && s.files.some(f => ['image', 'video', 'audio'].includes(f.kind)) },
+  { type: 'custom', id: 'robust', when: (o, s) => o.mode === 'advanced' && s.files.length, html: (o, s) => { const kinds = [...new Set(s.files.map(f => f.kind).filter(Boolean))]; return `<span class="lbl">Ketahanan</span>${kinds.map(k => `<div class="note">${ic('shield')}<span><b>${{ pdf: 'PDF', image: 'Gambar', video: 'Video', audio: 'Audio', docx: 'Word', pptx: 'PowerPoint', xlsx: 'Excel', text: 'Teks' }[k]}</b> — ${WM_ROBUST[k]}</span></div>`).join('')}`; } },
+];
+function wmValidate(o) {
+  if (o.mode === 'basic') { if (o.kind === 'text' ? !o.text.trim() : !o.image) return o.kind === 'text' ? 'Tulis teks watermark.' : 'Pilih gambar/logo watermark.'; }
+  if (o.mode === 'advanced') { if (!o.wmText.trim()) return 'Tulis pesan tersembunyi.'; if (o.wmPass && o.wmPass.length < 4) return 'Kata sandi watermark minimal 4 karakter.'; }
+}
+async function wmApply(f, o, prog) {
+  if (o.mode === 'advanced') return { ...(await wmAdvanced(f, { ...o, wmText: o.wmText.trim() }, prog)), method: WM_METHOD.advanced[f.kind] };
+  return { ...(await wmBasic(f, o, prog)), method: WM_METHOD.basic[f.kind] };
+}
+/* tampilkan sekumpulan field hanya bila add-on aktif */
+const gated = (fields, cond) => fields.map(f => ({ ...f, when: (o, s) => cond(o, s) && (!f.when || f.when(o, s)) }));
+const SECRET_KEYS = ['pw', 'pw2', 'owner', 'wmPass', 'image'];
+
+const WATERMARK_TOOL = {
+  id: 'watermark', cat: 'edit', name: 'Watermark', icon: 'drop', color: '#6366f1', engine: FilesEngine, popular: true, badge: 'Baru', remember: true,
+  preview: (ctx, p, o) => o.mode === 'basic' && drawStampPreview(ctx, p, o), previewWhen: o => o.mode === 'basic',
+  desc: 'Watermark terlihat atau tak terlihat & terenkripsi untuk PDF, Office, gambar, video, audio, teks.', long: 'Basic: stempel yang terlihat. Advanced: pesan tak terlihat & terenkripsi yang bisa dibuktikan kembali — metodenya dipilih otomatis sesuai jenis file.',
+  accept: '*/*', test: f => !!wmKind(f), acceptLabel: 'PDF · WORD · PPT · EXCEL · GAMBAR · VIDEO · AUDIO · TEKS',
+  action: 'Terapkan watermark', actionFor: o => o.mode === 'verify' ? 'Periksa watermark' : o.addProtect ? 'Watermark & lindungi' : 'Terapkan watermark', sideTitle: 'Watermark',
+  perks: ['Basic: stempel teks/logo terlihat', 'Advanced: tak terlihat + AES-256', 'Bisa sekaligus dikunci (PDF)'],
+  defaults: { ...WM_DEFAULTS, addProtect: false, ...PROT_DEFAULTS },
+  fileNote: (f, o) => { const k = f.kind; if (!k) return ''; if (o.mode === 'verify') return 'Siap diperiksa'; return (WM_METHOD[o.mode]?.[k] || '') + (o.addProtect && k === 'pdf' ? ' + dikunci' : ''); },
+  onOpt: (k, o) => protOnOpt(k, o) || k === 'addProtect' || k === 'mode',
+  opts: [
+    ...wmFields(true),
+    { type: 'addon', k: 'addProtect', icon: 'lock', label: 'Lindungi PDF sekaligus', help: 'Setelah diberi watermark, PDF langsung dikunci sandi atau dibatasi izinnya. File non-PDF tidak terpengaruh.', when: (o, s) => o.mode !== 'verify' && s.files.some(f => f.kind === 'pdf') },
+    ...gated(protFields(), (o, s) => o.addProtect && o.mode !== 'verify' && s.files.some(f => f.kind === 'pdf')),
+  ],
+  validate: (o, s) => wmValidate(o) || (o.addProtect && o.mode !== 'verify' && s.files.some(f => f.kind === 'pdf') ? protValidate(o) : null),
+  async process(f, o, prog) {
+    if (o.mode === 'verify') return [{ name: f.name, report: await wmDetect(f, o, prog) }];
+    const out = await wmApply(f, o, (p, m) => prog(p * (o.addProtect ? .85 : 1), m));
+    if (o.addProtect && f.kind === 'pdf' && isPdfName(out.name)) {
+      prog(.9, 'Mengunci PDF…');
+      out.blob = new Blob([await protApply(new Uint8Array(await out.blob.arrayBuffer()), o)], { type: 'application/pdf' });
+      out.method = `${out.method} · ${protLabel(o)}`;
+    }
+    return [out];
+  }
+};
+const PROTECT_TOOL = {
+  id: 'protect', cat: 'security', name: 'Protect PDF', icon: 'lock', color: '#334155', engine: FilesEngine, remember: true,
+  preview: (ctx, p, o) => o.addWm && o.mode === 'basic' && drawStampPreview(ctx, p, o), previewWhen: o => o.addWm && o.mode === 'basic',
+  desc: 'Kunci PDF dengan sandi, atau bagikan tanpa sandi dengan izin terbatas.', long: 'Enkripsi AES-256 dengan kata sandi pembuka — atau tanpa sandi, sehingga siapa pun bisa membuka tetapi hanya bisa melakukan yang Anda izinkan.',
+  ...accept('pdf'), action: 'Lindungi PDF', actionFor: o => o.addWm ? 'Watermark & lindungi' : 'Lindungi PDF', sideTitle: 'Proteksi', perks: ['Dengan atau tanpa kata sandi pembuka', '7 izin diatur satu per satu', 'Bisa sekaligus diberi watermark'],
+  defaults: { ...PROT_DEFAULTS, addWm: false, ...WM_DEFAULTS },
+  fileNote: (f, o) => o.addWm ? `${WM_METHOD[o.mode]?.pdf || ''} + ${protLabel(o)}` : '',
+  onOpt: (k, o) => protOnOpt(k, o) || k === 'addWm' || k === 'mode',
+  opts: [
+    ...protFields(),
+    { type: 'addon', k: 'addWm', icon: 'drop', label: 'Tambahkan watermark sekaligus', help: 'Watermark dipasang lebih dulu, baru PDF dikunci — sehingga watermark ikut terlindungi.' },
+    ...gated(wmFields(false), o => o.addWm),
+  ],
+  validate: o => protValidate(o) || (o.addWm ? wmValidate(o) : null),
+  async process(f, o, prog) {
+    let bytes = f.bytes, method;
+    if (o.addWm) {
+      const w = await wmApply(f, o, (p, m) => prog(p * .8, m));
+      bytes = new Uint8Array(await w.blob.arrayBuffer()); method = w.method + ' · ' + protLabel(o);
+    }
+    prog(.85, 'Mengenkripsi…');
+    const out = await protApply(bytes, o);
+    return [{ name: baseName(f.name) + (o.addWm ? '-wm' : '') + (o.access === 'open' ? '-terbatas.pdf' : '-terkunci.pdf'), blob: new Blob([out], { type: 'application/pdf' }), method }];
+  }
+};
+
 const CATS = [
   { id: 'organize', name: 'Atur & gabung' }, { id: 'optimize', name: 'Optimasi' }, { id: 'convert', name: 'Konversi' },
   { id: 'edit', name: 'Edit & tanda tangan' }, { id: 'security', name: 'Keamanan' }, { id: 'image', name: 'Gambar' },
@@ -2430,44 +2584,7 @@ const TOOLS = [
     }
   },
   { id: 'sign', cat: 'edit', name: 'Tanda tangan PDF', icon: 'sign', color: '#e11d48', engine: null, single: true, popular: true, desc: 'Gambar, ketik, atau unggah tanda tangan lalu tempel.', long: 'Buat tanda tangan, lalu tempatkan di halaman mana pun. Tambahkan juga teks atau tanggal.', ...accept('pdf'), action: 'Simpan PDF bertanda tangan', perks: ['Gambar, ketik, atau unggah', 'Seret & ubah ukuran bebas', 'Tambah teks dan tanggal'], defaults: { name: '' } },
-  {
-    id: 'watermark', cat: 'edit', name: 'Watermark', icon: 'drop', color: '#6366f1', engine: FilesEngine, popular: true, badge: 'Baru',
-    preview: (ctx, p, o) => o.mode === 'basic' && drawStampPreview(ctx, p, o), previewWhen: o => o.mode === 'basic',
-    desc: 'Watermark terlihat atau tak terlihat & terenkripsi untuk PDF, Office, gambar, video, audio, teks.', long: 'Basic: stempel yang terlihat. Advanced: pesan tak terlihat & terenkripsi yang bisa dibuktikan kembali — metodenya dipilih otomatis sesuai jenis file.',
-    accept: '*/*', test: f => !!wmKind(f), acceptLabel: 'PDF · WORD · PPT · EXCEL · GAMBAR · VIDEO · AUDIO · TEKS',
-    action: 'Terapkan watermark', actionFor: o => o.mode === 'verify' ? 'Periksa watermark' : 'Terapkan watermark', sideTitle: 'Watermark',
-    perks: ['Basic: stempel teks/logo terlihat', 'Advanced: tak terlihat + AES-256', 'Periksa & buktikan kepemilikan'],
-    defaults: { mode: 'basic', kind: 'text', text: 'RAHASIA', size: 64, color: '#e0393e', opacity: 22, angle: 35, layout: 'center', image: null, scale: 40, wmText: '', wmPass: '', wmStrength: 'std' },
-    fileNote: (f, o) => { const k = f.kind; if (!k) return ''; if (o.mode === 'verify') return 'Siap diperiksa'; return WM_METHOD[o.mode]?.[k] || ''; },
-    opts: [
-      { type: 'seg', k: 'mode', label: 'Mode', options: [['basic', 'Basic'], ['advanced', 'Advanced'], ['verify', 'Periksa']] },
-      { type: 'note', when: o => o.mode === 'basic', text: 'Stempel yang terlihat — cocok untuk menandai draf, salinan, atau dokumen rahasia.' },
-      { type: 'note', when: o => o.mode === 'advanced', text: 'Pesan disisipkan <b>tanpa terlihat</b>. Metodenya dipilih otomatis untuk tiap jenis file — lihat label di daftar file.' },
-      { type: 'note', when: o => o.mode === 'verify', text: 'Unggah file yang ingin dicek. Jika watermark dibuat dengan kata sandi, masukkan sandinya — tanpa sandi, letak watermark tidak bisa ditemukan.' },
-      { type: 'seg', k: 'kind', label: 'Jenis', options: [['text', 'Teks'], ['image', 'Gambar / logo']], when: o => o.mode === 'basic' },
-      { type: 'text', k: 'text', label: 'Teks watermark', maxlength: 80, when: o => o.mode === 'basic' && o.kind === 'text' },
-      { type: 'range', k: 'size', label: 'Ukuran huruf', min: 16, max: 160, fmt: v => v + ' pt', when: o => o.mode === 'basic' && o.kind === 'text' },
-      { type: 'color', k: 'color', label: 'Warna', presets: ['#e0393e', '#111827', '#6a4cff', '#0ea5a4', '#9ca3af'], when: o => o.mode === 'basic' && o.kind === 'text' },
-      { type: 'file', k: 'image', label: 'Gambar / logo', accept: 'image/png,image/jpeg,image/webp', help: 'PNG transparan memberi hasil terbaik. (Word/PPT/Excel memakai teks.)', when: o => o.mode === 'basic' && o.kind === 'image' },
-      { type: 'range', k: 'scale', label: 'Lebar logo', min: 10, max: 100, fmt: v => v + '%', when: o => o.mode === 'basic' && o.kind === 'image' },
-      { type: 'range', k: 'opacity', label: 'Transparansi', min: 5, max: 100, fmt: v => v + '%', when: o => o.mode === 'basic' },
-      { type: 'range', k: 'angle', label: 'Sudut', min: -90, max: 90, fmt: v => v + '°', when: o => o.mode === 'basic' },
-      { type: 'seg', k: 'layout', label: 'Penempatan', options: [['center', 'Tengah'], ['tile', 'Pola berulang']], when: o => o.mode === 'basic' },
-      { type: 'text', k: 'wmText', label: 'Pesan tersembunyi', maxlength: WM_MAX_MSG, ph: 'mis. © Erik 2026 · untuk Klien A', help: 'Maks. 64 karakter. Pesan pendek = lebih tahan di gambar, video & audio.', when: o => o.mode === 'advanced' },
-      { type: 'password', k: 'wmPass', label: 'Kata sandi (opsional)', ph: 'Kosongkan agar bisa dicek siapa pun', help: 'Dengan sandi: pesan dienkripsi AES-256-GCM dan letaknya diacak — hanya pemegang sandi yang bisa membaca, dan perubahan isi terdeteksi.', when: o => o.mode !== 'basic' },
-      { type: 'seg', k: 'wmStrength', label: 'Kekuatan (gambar, video, audio)', options: [['soft', 'Halus'], ['std', 'Standar'], ['strong', 'Kuat']], help: 'Halus = paling tak kasatmata · Kuat = paling tahan kompresi.', when: (o, s) => o.mode === 'advanced' && s.files.some(f => ['image', 'video', 'audio'].includes(f.kind)) },
-      { type: 'custom', id: 'robust', when: (o, s) => o.mode === 'advanced' && s.files.length, html: (o, s) => { const kinds = [...new Set(s.files.map(f => f.kind).filter(Boolean))]; return `<span class="lbl">Ketahanan</span>${kinds.map(k => `<div class="note">${ic('shield')}<span><b>${{ pdf: 'PDF', image: 'Gambar', video: 'Video', audio: 'Audio', docx: 'Word', pptx: 'PowerPoint', xlsx: 'Excel', text: 'Teks' }[k]}</b> — ${WM_ROBUST[k]}</span></div>`).join('')}`; } },
-    ],
-    validate: (o, s) => {
-      if (o.mode === 'basic') { if (o.kind === 'text' ? !o.text.trim() : !o.image) return o.kind === 'text' ? 'Tulis teks watermark.' : 'Pilih gambar/logo watermark.'; }
-      if (o.mode === 'advanced') { if (!o.wmText.trim()) return 'Tulis pesan tersembunyi.'; if (o.wmPass && o.wmPass.length < 4) return 'Kata sandi minimal 4 karakter.'; }
-    },
-    async process(f, o, prog) {
-      if (o.mode === 'verify') return [{ name: f.name, report: await wmDetect(f, o, prog) }];
-      if (o.mode === 'advanced') return [{ ...(await wmAdvanced(f, { ...o, wmText: o.wmText.trim() }, prog)), method: WM_METHOD.advanced[f.kind] }];
-      return [{ ...(await wmBasic(f, o, prog)), method: WM_METHOD.basic[f.kind] }];
-    }
-  },
+  WATERMARK_TOOL,
   {
     id: 'page-numbers', cat: 'edit', name: 'Nomor halaman', icon: 'hash', color: '#06b6d4', engine: FilesEngine, preview: (ctx, p, o) => drawNumPreview(ctx, p, o),
     desc: 'Tambahkan nomor halaman ke PDF.', long: 'Tambahkan nomor halaman dengan posisi, format, dan ukuran yang bisa diatur.',
@@ -2492,72 +2609,7 @@ const TOOLS = [
     }
   },
   { id: 'crop', cat: 'edit', name: 'Crop PDF', icon: 'crop', color: '#10b981', engine: null, single: true, desc: 'Potong area halaman, termasuk deteksi otomatis.', long: 'Tarik kotak untuk memotong halaman — atau biarkan RapiPDF mendeteksi area kosong.', ...accept('pdf'), action: 'Crop PDF', perks: ['Tarik kotak secara visual', 'Deteksi margin kosong otomatis', 'Semua halaman atau satu halaman'], defaults: { scope: 'all', name: '' } },
-  {
-    id: 'protect', cat: 'security', name: 'Protect PDF', icon: 'lock', color: '#334155', engine: FilesEngine,
-    desc: 'Kunci PDF dengan sandi, atau bagikan tanpa sandi dengan izin terbatas.', long: 'Enkripsi AES-256 dengan kata sandi pembuka — atau tanpa sandi, sehingga siapa pun bisa membuka tetapi hanya bisa melakukan yang Anda izinkan.',
-    ...accept('pdf'), action: 'Lindungi PDF', sideTitle: 'Proteksi', perks: ['Dengan atau tanpa kata sandi pembuka', '7 izin diatur satu per satu', 'AES-256, AES-128, atau kompatibel lama'],
-    defaults: { access: 'password', pw: '', pw2: '', owner: '', preset: 'print', print: 'full', copy: false, modify: false, assemble: false, annotate: false, form: false, algo: 'aes256', clearMeta: false },
-    onOpt(k, o) {
-      const P = { view: { print: 'none', copy: false, modify: false, assemble: false, annotate: false, form: false }, print: { print: 'full', copy: false, modify: false, assemble: false, annotate: false, form: false }, review: { print: 'full', copy: false, modify: false, assemble: false, annotate: true, form: true }, form: { print: 'full', copy: false, modify: false, assemble: false, annotate: false, form: true }, all: { print: 'full', copy: true, modify: true, assemble: true, annotate: true, form: true } };
-      if (k === 'preset' && P[o.preset]) { Object.assign(o, P[o.preset]); return true; }
-      if (['print', 'copy', 'modify', 'assemble', 'annotate', 'form'].includes(k)) { if (k === 'annotate' && o.annotate) o.form = true; const m = Object.entries(P).find(([, v]) => Object.keys(v).every(x => v[x] === o[x])); o.preset = m ? m[0] : 'custom'; return true; }
-      if (k === 'access' && o.access === 'open' && o.preset === 'all') { o.preset = 'print'; Object.assign(o, P.print); return true; }
-    },
-    opts: [
-      { type: 'radio', k: 'access', label: 'Siapa yang bisa membuka', options: [
-        { v: 'password', t: 'Hanya yang tahu kata sandi', d: 'File dienkripsi; tanpa sandi isinya tidak bisa dibuka sama sekali.' },
-        { v: 'open', t: 'Siapa pun, tanpa kata sandi', tag: 'Untuk dibagikan', d: 'Semua orang bisa membuka & membaca, tetapi hanya bisa melakukan yang Anda izinkan di bawah.' }] },
-      { type: 'password', k: 'pw', label: 'Kata sandi pembuka', ph: 'Minimal 6 karakter', when: o => o.access === 'password', extra: () => `<div class="strength"><i></i></div><small class="str-t"></small>`,
-        live: (box, o) => {
-          const p = o.pw; let sc = 0; if (p.length >= 6) sc++; if (p.length >= 10) sc++; if (/[A-Z]/.test(p) && /[a-z]/.test(p)) sc++; if (/\d/.test(p)) sc++; if (/[^A-Za-z0-9]/.test(p)) sc++;
-          const lv = [['', '#0000'], ['Lemah', '#e0393e'], ['Lemah', '#e0393e'], ['Cukup', '#f59e0b'], ['Kuat', '#14a058'], ['Sangat kuat', '#14a058']][p ? Math.max(1, sc) : 0];
-          const bar = $('.strength i', box); if (bar) { bar.style.width = (p ? Math.max(1, sc) : 0) * 20 + '%'; bar.style.background = lv[1]; } const tx = $('.str-t', box); if (tx) tx.textContent = lv[0];
-        } },
-      { type: 'password', k: 'pw2', label: 'Ulangi kata sandi', ph: 'Ketik ulang kata sandi', when: o => o.access === 'password' },
-      { type: 'title', text: 'Izin untuk pembaca' },
-      { type: 'seg', k: 'preset', label: 'Pilihan cepat', options: [['view', 'Hanya baca'], ['print', 'Baca & cetak'], ['review', 'Review'], ['form', 'Isi formulir'], ...[['all', 'Semua']]], help: o => o.preset === 'custom' ? 'Kustom — diatur manual di bawah.' : '' },
-      { type: 'seg', k: 'print', label: 'Mencetak', options: [['full', 'Kualitas penuh'], ['low', 'Resolusi rendah'], ['none', 'Tidak boleh']] },
-      { type: 'toggle', k: 'copy', label: 'Menyalin teks & gambar', help: 'Termasuk memilih teks, salin-tempel, dan mengekstrak gambar.' },
-      { type: 'toggle', k: 'modify', label: 'Mengubah isi dokumen', help: 'Mengedit teks, gambar, dan objek lain di halaman.' },
-      { type: 'toggle', k: 'assemble', label: 'Menyusun halaman', help: 'Menyisipkan, menghapus, memutar halaman, serta bookmark & thumbnail.' },
-      { type: 'toggle', k: 'annotate', label: 'Mengomentari', help: 'Catatan, sorotan, coretan, dan anotasi lain. Otomatis mengizinkan isi formulir.' },
-      { type: 'toggle', k: 'form', label: 'Mengisi formulir & menandatangani', help: 'Mengisi kolom formulir yang sudah ada, termasuk kolom tanda tangan digital.' },
-      { type: 'custom', id: 'sum', html: o => {
-        const ok = (b, t) => `<li class="${b ? 'ok' : 'no'}">${ic(b ? 'check' : 'x')}${t}</li>`;
-        return `<span class="lbl">Ringkasan yang dilihat pembaca</span><ul class="perm-sum">${ok(true, 'Membuka & membaca')}${ok(o.print !== 'none', 'Mencetak' + (o.print === 'low' ? ' (resolusi rendah)' : ''))}${ok(o.copy, 'Menyalin konten')}${ok(true, 'Menyalin untuk aksesibilitas — selalu diizinkan standar PDF')}${ok(o.modify, 'Mengubah dokumen')}${ok(o.assemble, 'Menyusun halaman')}${ok(o.annotate, 'Komentar')}${ok(o.form || o.annotate, 'Mengisi formulir')}${ok(o.form || o.annotate, 'Menandatangani')}</ul>`;
-      } },
-      { type: 'title', text: 'Lanjutan' },
-      { type: 'password', k: 'owner', label: 'Kata sandi pemilik (opsional)', ph: 'Kosongkan = dibuat acak', help: 'Dipakai untuk mengubah izin nanti di Adobe Acrobat. Jika dikosongkan, dibuat acak dan tidak disimpan.' },
-      { type: 'select', k: 'algo', label: 'Enkripsi', options: [['aes256', 'AES-256 (disarankan)'], ['aes128', 'AES-128 · Acrobat 7+'], ['rc4', 'RC4-128 · pembaca PDF sangat lama']] },
-      { type: 'toggle', k: 'clearMeta', label: 'Biarkan metadata terbaca', help: 'Judul & penulis tetap bisa dibaca mesin pencari/indeks tanpa membuka isi.' },
-      { type: 'note', tone: 'warn', when: o => o.access === 'open', text: 'Tanpa kata sandi pembuka, izin dipatuhi oleh pembaca PDF standar (Adobe Acrobat/Reader, Chrome, Edge, Foxit), tetapi bisa diabaikan oleh alat tertentu. Untuk bukti kepemilikan, tambahkan juga <a href="#/watermark" style="text-decoration:underline">Watermark</a>.' },
-      { type: 'note', tone: 'warn', when: o => o.access === 'password', text: 'Simpan kata sandi Anda baik-baik — tanpa kata sandi, PDF tidak dapat dibuka.' },
-      { type: 'note', text: 'Tidak ada PDF yang bisa mencegah orang menyimpan salinan file, mengambil screenshot, atau memotret layar.' },
-    ],
-    validate: o => {
-      if (o.access === 'password') { if (o.pw.length < 6) return 'Kata sandi pembuka minimal 6 karakter.'; if (o.pw !== o.pw2) return 'Kedua kata sandi belum sama.'; if (o.owner && o.owner === o.pw) return 'Kata sandi pemilik harus berbeda dari kata sandi pembuka.'; }
-      if (o.access === 'open' && o.preset === 'all') return 'Tanpa kata sandi dan semua izin diberikan, tidak ada yang dilindungi. Batasi minimal satu izin.';
-    },
-    async process(f, o, prog) {
-      prog(.2, 'Mengenkripsi…');
-      const user = o.access === 'password' ? o.pw : '';
-      const restrict = !(o.print === 'full' && o.copy && o.modify && o.assemble && o.annotate && o.form);
-      const owner = o.owner || (!restrict && user ? user : Array.from(crypto.getRandomValues(new Uint8Array(18)), b => b.toString(16).padStart(2, '0')).join(''));
-      const bits = { aes256: '256', aes128: '128', rc4: '128' }[o.algo] || '256';
-      const yn = v => v ? 'y' : 'n';
-      const args = ['/in.pdf', '--encrypt', `--user-password=${user}`, `--owner-password=${owner}`, `--bits=${bits}`,
-        `--print=${o.print}`, `--extract=${yn(o.copy)}`, `--modify-other=${yn(o.modify)}`, `--assemble=${yn(o.assemble)}`, `--annotate=${yn(o.annotate)}`, `--form=${yn(o.form || o.annotate)}`];
-      if (o.algo === 'aes128') args.push('--use-aes=y');
-      if (o.algo === 'rc4') args.push('--use-aes=n');
-      if (o.clearMeta) args.push('--cleartext-metadata');
-      args.push('--');
-      if (o.algo === 'rc4') args.push('--allow-weak-crypto');
-      args.push('/out.pdf');
-      const { code, out } = await qpdf(args, f.bytes);
-      if ((code !== 0 && code !== 3) || !out) throw Error('Enkripsi gagal untuk ' + f.name);
-      return [{ name: baseName(f.name) + (o.access === 'open' ? '-terbatas.pdf' : '-terkunci.pdf'), blob: new Blob([out], { type: 'application/pdf' }) }];
-    }
-  },
+  PROTECT_TOOL,
   {
     id: 'unlock', cat: 'security', name: 'Unlock PDF', icon: 'unlock', color: '#64748b', engine: FilesEngine,
     desc: 'Hapus kata sandi & batasan dari PDF milik Anda.', long: 'Hapus kata sandi dan batasan cetak/salin dari PDF yang Anda punya aksesnya.',
@@ -3018,6 +3070,7 @@ let current = null, pending = null;
 
 function fresh(t) {
   const s = { stage: 'upload', opts: structuredClone(t.defaults || {}), outputs: null, ...(t.engine.init?.() || {}) };
+  if (t.remember) { const saved = store.get('opts:' + t.id, null); if (saved) for (const [k, v] of Object.entries(saved)) if (k in s.opts && !SECRET_KEYS.includes(k)) s.opts[k] = v; }
   t.init?.(s); return s;
 }
 const S = id => sessions[id] ||= fresh(T[id]);
@@ -3051,7 +3104,7 @@ function openWith(id, files) { sessions[id] && T[id].engine.reset?.(sessions[id]
 /* ---------- beranda ---------- */
 const FAQ = [
   ['privasi', 'Apakah file saya diunggah ke server?', `Tidak. PiawaiLab hanyalah halaman web statis: semua pemrosesan — merge, kompres, watermark, dan lainnya — berjalan di browser Anda dengan JavaScript & WebAssembly. Tidak ada server yang menerima file Anda. Anda bisa membuktikannya sendiri: buka <b>DevTools → Network</b> saat memproses file, atau putuskan internet setelah halaman terbuka — alat tetap berjalan.`],
-  ['simpan', 'Apa saja yang disimpan di perangkat saya?', `Hanya pengaturan kecil: tema terang/gelap, pilihan cara menyimpan file, dan tanda tangan <i>jika</i> Anda mencentang "Ingat tanda tangan". File yang Anda proses hanya ada di memori tab dan hilang saat tab ditutup. <button class="tbtn outline" data-clear-data style="margin-top:8px">Hapus semua data tersimpan</button>`],
+  ['simpan', 'Apa saja yang disimpan di perangkat saya?', `Hanya pengaturan kecil: tema terang/gelap, pilihan cara menyimpan file, pengaturan terakhir Watermark & Protect (<b>kata sandi tidak pernah disimpan</b>), dan tanda tangan <i>jika</i> Anda mencentang "Ingat tanda tangan". File yang Anda proses hanya ada di memori tab dan hilang saat tab ditutup. <button class="tbtn outline" data-clear-data style="margin-top:8px">Hapus semua data tersimpan</button>`],
   ['batas', 'Gratis? Ada batas ukuran atau jumlah?', `Gratis, tanpa akun, tanpa kuota harian. Batasnya hanya memori perangkat Anda: PDF ratusan MB atau video panjang tetap bisa, tetapi lebih lambat di ponsel. Untuk video, durasi beberapa menit di 1080p masih nyaman di laptop.`],
   ['offline', 'Bisa dipakai tanpa internet?', `Bisa. Setelah halaman pernah dibuka, PiawaiLab menyimpan komponennya di perangkat sehingga bisa dibuka & dipakai offline. Anda juga bisa memasangnya sebagai aplikasi (tombol <b>Pasang</b> di pojok kanan atas, bila browser mendukung). Pengecualian: model AI hapus latar perlu diunduh sekali saat online.`],
   ['browser', 'Browser apa yang didukung?', `Chrome, Edge, dan browser berbasis Chromium versi terbaru mendukung semua alat. Firefox dan Safari mendukung hampir semua alat; pengolahan video memerlukan WebCodecs (Chrome/Edge, Safari 17+, Firefox 130+).`],
@@ -3268,7 +3321,7 @@ function setupPwa() {
 
 /* ---------- start ---------- */
 setupShell(); setupGlobal(); setupPwa(); route();
-window.PiawaiLab = { version: '2.1' };
+window.PiawaiLab = { version: '2.2' };
 // panaskan pustaka inti saat browser santai
 (window.requestIdleCallback || setTimeout)(() => { lib('pdflib').catch(() => { }); pdfjs().catch(() => { }); }, { timeout: 2500 });
 

@@ -7,6 +7,7 @@ let current = null, pending = null;
 
 function fresh(t) {
   const s = { stage: 'upload', opts: structuredClone(t.defaults || {}), outputs: null, ...(t.engine.init?.() || {}) };
+  if (t.remember) { const saved = store.get('opts:' + t.id, null); if (saved) for (const [k, v] of Object.entries(saved)) if (k in s.opts && !SECRET_KEYS.includes(k)) s.opts[k] = v; }
   t.init?.(s); return s;
 }
 const S = id => sessions[id] ||= fresh(T[id]);
@@ -40,7 +41,7 @@ function openWith(id, files) { sessions[id] && T[id].engine.reset?.(sessions[id]
 /* ---------- beranda ---------- */
 const FAQ = [
   ['privasi', 'Apakah file saya diunggah ke server?', `Tidak. PiawaiLab hanyalah halaman web statis: semua pemrosesan — merge, kompres, watermark, dan lainnya — berjalan di browser Anda dengan JavaScript & WebAssembly. Tidak ada server yang menerima file Anda. Anda bisa membuktikannya sendiri: buka <b>DevTools → Network</b> saat memproses file, atau putuskan internet setelah halaman terbuka — alat tetap berjalan.`],
-  ['simpan', 'Apa saja yang disimpan di perangkat saya?', `Hanya pengaturan kecil: tema terang/gelap, pilihan cara menyimpan file, dan tanda tangan <i>jika</i> Anda mencentang "Ingat tanda tangan". File yang Anda proses hanya ada di memori tab dan hilang saat tab ditutup. <button class="tbtn outline" data-clear-data style="margin-top:8px">Hapus semua data tersimpan</button>`],
+  ['simpan', 'Apa saja yang disimpan di perangkat saya?', `Hanya pengaturan kecil: tema terang/gelap, pilihan cara menyimpan file, pengaturan terakhir Watermark & Protect (<b>kata sandi tidak pernah disimpan</b>), dan tanda tangan <i>jika</i> Anda mencentang "Ingat tanda tangan". File yang Anda proses hanya ada di memori tab dan hilang saat tab ditutup. <button class="tbtn outline" data-clear-data style="margin-top:8px">Hapus semua data tersimpan</button>`],
   ['batas', 'Gratis? Ada batas ukuran atau jumlah?', `Gratis, tanpa akun, tanpa kuota harian. Batasnya hanya memori perangkat Anda: PDF ratusan MB atau video panjang tetap bisa, tetapi lebih lambat di ponsel. Untuk video, durasi beberapa menit di 1080p masih nyaman di laptop.`],
   ['offline', 'Bisa dipakai tanpa internet?', `Bisa. Setelah halaman pernah dibuka, PiawaiLab menyimpan komponennya di perangkat sehingga bisa dibuka & dipakai offline. Anda juga bisa memasangnya sebagai aplikasi (tombol <b>Pasang</b> di pojok kanan atas, bila browser mendukung). Pengecualian: model AI hapus latar perlu diunduh sekali saat online.`],
   ['browser', 'Browser apa yang didukung?', `Chrome, Edge, dan browser berbasis Chromium versi terbaru mendukung semua alat. Firefox dan Safari mendukung hampir semua alat; pengolahan video memerlukan WebCodecs (Chrome/Edge, Safari 17+, Firefox 130+).`],
@@ -257,6 +258,6 @@ function setupPwa() {
 
 /* ---------- start ---------- */
 setupShell(); setupGlobal(); setupPwa(); route();
-window.PiawaiLab = { version: '2.1' };
+window.PiawaiLab = { version: '2.2' };
 // panaskan pustaka inti saat browser santai
 (window.requestIdleCallback || setTimeout)(() => { lib('pdflib').catch(() => { }); pdfjs().catch(() => { }); }, { timeout: 2500 });
