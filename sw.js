@@ -1,6 +1,6 @@
 /* PiawaiLab service worker — aplikasi bisa dibuka & dipakai offline.
    File pengguna tidak pernah melewati SW ini: hanya aset aplikasi (HTML, JS, font) yang di-cache. */
-const V = 'piawailab-v2.0.0';
+const V = 'piawailab-v2.1.0';
 const CORE = ['./', './index.html', './manifest.webmanifest', './assets/icon.svg', './assets/icon-192.png',
   './vendor/fonts/pjs-400.woff2', './vendor/fonts/pjs-500.woff2', './vendor/fonts/pjs-600.woff2', './vendor/fonts/pjs-700.woff2', './vendor/fonts/pjs-800.woff2',
   './vendor/pdf.min.js', './vendor/pdf.worker.min.js', './vendor/pdf-lib.min.js', './vendor/jszip.min.js'];

@@ -388,7 +388,7 @@ const FilesEngine = {
       if (e.target.closest('[data-a="add"]')) pickFiles(t);
     };
     const relabel = () => { if (t.actionFor) $('span', ui.run).textContent = t.actionFor(s.opts); };
-    s.paintOpts = mountOpts(ui.opts, t.opts || [], s.opts, s, (k, discrete) => { FilesEngine.preview(s, t); if (discrete) { FilesEngine.paint(s, t); relabel(); } });
+    s.paintOpts = mountOpts(ui.opts, t.opts || [], s.opts, s, (k, discrete) => { if (t.onOpt?.(k, s.opts)) s.paintOpts(); FilesEngine.preview(s, t); if (discrete) { FilesEngine.paint(s, t); relabel(); } });
     relabel();
     ui.run.onclick = async () => {
       if (s.files.some(f => f.loading)) { toast('Menunggu file selesai dibaca…'); while (s.files.some(f => f.loading)) await sleep(150); }

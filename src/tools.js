@@ -369,32 +369,68 @@ const TOOLS = [
   { id: 'crop', cat: 'edit', name: 'Crop PDF', icon: 'crop', color: '#10b981', engine: null, single: true, desc: 'Potong area halaman, termasuk deteksi otomatis.', long: 'Tarik kotak untuk memotong halaman — atau biarkan RapiPDF mendeteksi area kosong.', ...accept('pdf'), action: 'Crop PDF', perks: ['Tarik kotak secara visual', 'Deteksi margin kosong otomatis', 'Semua halaman atau satu halaman'], defaults: { scope: 'all', name: '' } },
   {
     id: 'protect', cat: 'security', name: 'Protect PDF', icon: 'lock', color: '#334155', engine: FilesEngine,
-    desc: 'Kunci PDF dengan kata sandi AES-256.', long: 'Lindungi PDF dengan kata sandi dan enkripsi AES-256. Atur juga izin cetak dan salin.',
-    ...accept('pdf'), action: 'Lindungi PDF', sideTitle: 'Kata sandi', perks: ['Enkripsi AES-256', 'Batasi cetak, salin, edit', 'Sandi tidak pernah meninggalkan perangkat'],
-    defaults: { pw: '', pw2: '', print: true, copy: true, edit: true },
-    opts: [{
-      type: 'password', k: 'pw', label: 'Kata sandi', ph: 'Minimal 6 karakter', extra: () => `<div class="strength"><i></i></div><small class="str-t"></small>`,
-      live: (box, o) => {
-        const p = o.pw; let sc = 0; if (p.length >= 6) sc++; if (p.length >= 10) sc++; if (/[A-Z]/.test(p) && /[a-z]/.test(p)) sc++; if (/\d/.test(p)) sc++; if (/[^A-Za-z0-9]/.test(p)) sc++;
-        const lv = [['', '#0000'], ['Lemah', '#e0393e'], ['Lemah', '#e0393e'], ['Cukup', '#f59e0b'], ['Kuat', '#14a058'], ['Sangat kuat', '#14a058']][p ? Math.max(1, sc) : 0];
-        const bar = $('.strength i', box); if (bar) { bar.style.width = (p ? Math.max(1, sc) : 0) * 20 + '%'; bar.style.background = lv[1]; } const tx = $('.str-t', box); if (tx) tx.textContent = lv[0];
-      }
+    desc: 'Kunci PDF dengan sandi, atau bagikan tanpa sandi dengan izin terbatas.', long: 'Enkripsi AES-256 dengan kata sandi pembuka — atau tanpa sandi, sehingga siapa pun bisa membuka tetapi hanya bisa melakukan yang Anda izinkan.',
+    ...accept('pdf'), action: 'Lindungi PDF', sideTitle: 'Proteksi', perks: ['Dengan atau tanpa kata sandi pembuka', '7 izin diatur satu per satu', 'AES-256, AES-128, atau kompatibel lama'],
+    defaults: { access: 'password', pw: '', pw2: '', owner: '', preset: 'print', print: 'full', copy: false, modify: false, assemble: false, annotate: false, form: false, algo: 'aes256', clearMeta: false },
+    onOpt(k, o) {
+      const P = { view: { print: 'none', copy: false, modify: false, assemble: false, annotate: false, form: false }, print: { print: 'full', copy: false, modify: false, assemble: false, annotate: false, form: false }, review: { print: 'full', copy: false, modify: false, assemble: false, annotate: true, form: true }, form: { print: 'full', copy: false, modify: false, assemble: false, annotate: false, form: true }, all: { print: 'full', copy: true, modify: true, assemble: true, annotate: true, form: true } };
+      if (k === 'preset' && P[o.preset]) { Object.assign(o, P[o.preset]); return true; }
+      if (['print', 'copy', 'modify', 'assemble', 'annotate', 'form'].includes(k)) { if (k === 'annotate' && o.annotate) o.form = true; const m = Object.entries(P).find(([, v]) => Object.keys(v).every(x => v[x] === o[x])); o.preset = m ? m[0] : 'custom'; return true; }
+      if (k === 'access' && o.access === 'open' && o.preset === 'all') { o.preset = 'print'; Object.assign(o, P.print); return true; }
     },
-    { type: 'password', k: 'pw2', label: 'Ulangi kata sandi', ph: 'Ketik ulang kata sandi' },
-    { type: 'title', text: 'Izin untuk pembaca' },
-    { type: 'toggle', k: 'print', label: 'Boleh mencetak' }, { type: 'toggle', k: 'copy', label: 'Boleh menyalin teks & gambar' }, { type: 'toggle', k: 'edit', label: 'Boleh mengubah dokumen' },
-    { type: 'note', tone: 'warn', text: 'Simpan kata sandi Anda baik-baik — tanpa kata sandi, PDF tidak dapat dibuka.' }],
-    validate: o => o.pw.length < 6 ? 'Kata sandi minimal 6 karakter.' : o.pw !== o.pw2 ? 'Kedua kata sandi belum sama.' : null,
+    opts: [
+      { type: 'radio', k: 'access', label: 'Siapa yang bisa membuka', options: [
+        { v: 'password', t: 'Hanya yang tahu kata sandi', d: 'File dienkripsi; tanpa sandi isinya tidak bisa dibuka sama sekali.' },
+        { v: 'open', t: 'Siapa pun, tanpa kata sandi', tag: 'Untuk dibagikan', d: 'Semua orang bisa membuka & membaca, tetapi hanya bisa melakukan yang Anda izinkan di bawah.' }] },
+      { type: 'password', k: 'pw', label: 'Kata sandi pembuka', ph: 'Minimal 6 karakter', when: o => o.access === 'password', extra: () => `<div class="strength"><i></i></div><small class="str-t"></small>`,
+        live: (box, o) => {
+          const p = o.pw; let sc = 0; if (p.length >= 6) sc++; if (p.length >= 10) sc++; if (/[A-Z]/.test(p) && /[a-z]/.test(p)) sc++; if (/\d/.test(p)) sc++; if (/[^A-Za-z0-9]/.test(p)) sc++;
+          const lv = [['', '#0000'], ['Lemah', '#e0393e'], ['Lemah', '#e0393e'], ['Cukup', '#f59e0b'], ['Kuat', '#14a058'], ['Sangat kuat', '#14a058']][p ? Math.max(1, sc) : 0];
+          const bar = $('.strength i', box); if (bar) { bar.style.width = (p ? Math.max(1, sc) : 0) * 20 + '%'; bar.style.background = lv[1]; } const tx = $('.str-t', box); if (tx) tx.textContent = lv[0];
+        } },
+      { type: 'password', k: 'pw2', label: 'Ulangi kata sandi', ph: 'Ketik ulang kata sandi', when: o => o.access === 'password' },
+      { type: 'title', text: 'Izin untuk pembaca' },
+      { type: 'seg', k: 'preset', label: 'Pilihan cepat', options: [['view', 'Hanya baca'], ['print', 'Baca & cetak'], ['review', 'Review'], ['form', 'Isi formulir'], ...[['all', 'Semua']]], help: o => o.preset === 'custom' ? 'Kustom — diatur manual di bawah.' : '' },
+      { type: 'seg', k: 'print', label: 'Mencetak', options: [['full', 'Kualitas penuh'], ['low', 'Resolusi rendah'], ['none', 'Tidak boleh']] },
+      { type: 'toggle', k: 'copy', label: 'Menyalin teks & gambar', help: 'Termasuk memilih teks, salin-tempel, dan mengekstrak gambar.' },
+      { type: 'toggle', k: 'modify', label: 'Mengubah isi dokumen', help: 'Mengedit teks, gambar, dan objek lain di halaman.' },
+      { type: 'toggle', k: 'assemble', label: 'Menyusun halaman', help: 'Menyisipkan, menghapus, memutar halaman, serta bookmark & thumbnail.' },
+      { type: 'toggle', k: 'annotate', label: 'Mengomentari', help: 'Catatan, sorotan, coretan, dan anotasi lain. Otomatis mengizinkan isi formulir.' },
+      { type: 'toggle', k: 'form', label: 'Mengisi formulir & menandatangani', help: 'Mengisi kolom formulir yang sudah ada, termasuk kolom tanda tangan digital.' },
+      { type: 'custom', id: 'sum', html: o => {
+        const ok = (b, t) => `<li class="${b ? 'ok' : 'no'}">${ic(b ? 'check' : 'x')}${t}</li>`;
+        return `<span class="lbl">Ringkasan yang dilihat pembaca</span><ul class="perm-sum">${ok(true, 'Membuka & membaca')}${ok(o.print !== 'none', 'Mencetak' + (o.print === 'low' ? ' (resolusi rendah)' : ''))}${ok(o.copy, 'Menyalin konten')}${ok(true, 'Menyalin untuk aksesibilitas — selalu diizinkan standar PDF')}${ok(o.modify, 'Mengubah dokumen')}${ok(o.assemble, 'Menyusun halaman')}${ok(o.annotate, 'Komentar')}${ok(o.form || o.annotate, 'Mengisi formulir')}${ok(o.form || o.annotate, 'Menandatangani')}</ul>`;
+      } },
+      { type: 'title', text: 'Lanjutan' },
+      { type: 'password', k: 'owner', label: 'Kata sandi pemilik (opsional)', ph: 'Kosongkan = dibuat acak', help: 'Dipakai untuk mengubah izin nanti di Adobe Acrobat. Jika dikosongkan, dibuat acak dan tidak disimpan.' },
+      { type: 'select', k: 'algo', label: 'Enkripsi', options: [['aes256', 'AES-256 (disarankan)'], ['aes128', 'AES-128 · Acrobat 7+'], ['rc4', 'RC4-128 · pembaca PDF sangat lama']] },
+      { type: 'toggle', k: 'clearMeta', label: 'Biarkan metadata terbaca', help: 'Judul & penulis tetap bisa dibaca mesin pencari/indeks tanpa membuka isi.' },
+      { type: 'note', tone: 'warn', when: o => o.access === 'open', text: 'Tanpa kata sandi pembuka, izin dipatuhi oleh pembaca PDF standar (Adobe Acrobat/Reader, Chrome, Edge, Foxit), tetapi bisa diabaikan oleh alat tertentu. Untuk bukti kepemilikan, tambahkan juga <a href="#/watermark" style="text-decoration:underline">Watermark</a>.' },
+      { type: 'note', tone: 'warn', when: o => o.access === 'password', text: 'Simpan kata sandi Anda baik-baik — tanpa kata sandi, PDF tidak dapat dibuka.' },
+      { type: 'note', text: 'Tidak ada PDF yang bisa mencegah orang menyimpan salinan file, mengambil screenshot, atau memotret layar.' },
+    ],
+    validate: o => {
+      if (o.access === 'password') { if (o.pw.length < 6) return 'Kata sandi pembuka minimal 6 karakter.'; if (o.pw !== o.pw2) return 'Kedua kata sandi belum sama.'; if (o.owner && o.owner === o.pw) return 'Kata sandi pemilik harus berbeda dari kata sandi pembuka.'; }
+      if (o.access === 'open' && o.preset === 'all') return 'Tanpa kata sandi dan semua izin diberikan, tidak ada yang dilindungi. Batasi minimal satu izin.';
+    },
     async process(f, o, prog) {
-      prog(.2, 'Mengenkripsi dengan AES-256…');
-      const restrict = !(o.print && o.copy && o.edit);
-      const owner = restrict ? Array.from(crypto.getRandomValues(new Uint8Array(18)), b => b.toString(16).padStart(2, '0')).join('') : o.pw;
-      const args = ['/in.pdf', '--encrypt', `--user-password=${o.pw}`, `--owner-password=${owner}`, '--bits=256'];
-      if (!o.print) args.push('--print=none'); if (!o.copy) args.push('--extract=n'); if (!o.edit) args.push('--modify=none');
-      args.push('--', '/out.pdf');
+      prog(.2, 'Mengenkripsi…');
+      const user = o.access === 'password' ? o.pw : '';
+      const restrict = !(o.print === 'full' && o.copy && o.modify && o.assemble && o.annotate && o.form);
+      const owner = o.owner || (!restrict && user ? user : Array.from(crypto.getRandomValues(new Uint8Array(18)), b => b.toString(16).padStart(2, '0')).join(''));
+      const bits = { aes256: '256', aes128: '128', rc4: '128' }[o.algo] || '256';
+      const yn = v => v ? 'y' : 'n';
+      const args = ['/in.pdf', '--encrypt', `--user-password=${user}`, `--owner-password=${owner}`, `--bits=${bits}`,
+        `--print=${o.print}`, `--extract=${yn(o.copy)}`, `--modify-other=${yn(o.modify)}`, `--assemble=${yn(o.assemble)}`, `--annotate=${yn(o.annotate)}`, `--form=${yn(o.form || o.annotate)}`];
+      if (o.algo === 'aes128') args.push('--use-aes=y');
+      if (o.algo === 'rc4') args.push('--use-aes=n');
+      if (o.clearMeta) args.push('--cleartext-metadata');
+      args.push('--');
+      if (o.algo === 'rc4') args.push('--allow-weak-crypto');
+      args.push('/out.pdf');
       const { code, out } = await qpdf(args, f.bytes);
       if ((code !== 0 && code !== 3) || !out) throw Error('Enkripsi gagal untuk ' + f.name);
-      return [{ name: baseName(f.name) + '-terkunci.pdf', blob: new Blob([out], { type: 'application/pdf' }) }];
+      return [{ name: baseName(f.name) + (o.access === 'open' ? '-terbatas.pdf' : '-terkunci.pdf'), blob: new Blob([out], { type: 'application/pdf' }) }];
     }
   },
   {

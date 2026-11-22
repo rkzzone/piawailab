@@ -257,6 +257,6 @@ function setupPwa() {
 
 /* ---------- start ---------- */
 setupShell(); setupGlobal(); setupPwa(); route();
-window.PiawaiLab = { version: '2.0' };
+window.PiawaiLab = { version: '2.1' };
 // panaskan pustaka inti saat browser santai
 (window.requestIdleCallback || setTimeout)(() => { lib('pdflib').catch(() => { }); pdfjs().catch(() => { }); }, { timeout: 2500 });
